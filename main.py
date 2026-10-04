@@ -94,7 +94,10 @@ for u in [
     ("vikram","Vikram Reddy","Event Host","ECE '24","SRM Boys Hostel D-Block","amber","vikram@paytm",85,0,15,95,4.8,"2026-10-04T09:00:00Z")
 ]:
     try:
-        CONN.execute("INSERT OR IGNORE INTO users VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", u)
+        CONN.execute(
+            "INSERT OR IGNORE INTO users (username,name,role,major,dorm,avatar_color,"
+            "upi_id,balance,escrow,pending_payout,total_earned,rating,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", u)
     except Exception as e:
         pass
 CONN.commit()
@@ -106,7 +109,7 @@ for g in [
     ("g3","Move Study Table & Small Fridge to Hostel D", "Heavy Lifting", 400, "Low", "SRM Hostel D Lobby", "Help move a study table and compact fridge to room 412, Hostel D.", "vikram", None, "OPEN", "2026-10-04T08:30:00Z")
 ]:
     try:
-        CONN.execute("INSERT OR IGNORE INTO gigs VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", g)
+        CONN.execute("INSERT OR IGNORE INTO gigs VALUES (?,?,?,?,?,?,?,?,?,?,?)", g)
     except:
         pass
 CONN.commit()
@@ -187,8 +190,9 @@ def accept_gig(gig_id: str, req: AcceptReq):
     conn.execute("INSERT INTO messages (from_user,to_user,text,context,time) VALUES (?,?,?,?,?)",
                  (worker, poster, f"Namaste {dict(conn.execute('SELECT name FROM users WHERE username=?',(poster,)).fetchone() or {'name':'there'})['name']}, I'm on it! Planning to complete by EOD.", "", datetime.now(timezone.utc).isoformat()))
     conn.commit()
+    updated = conn.execute("SELECT * FROM gigs WHERE id=?", (gig_id,)).fetchone()
     conn.close()
-    return {"ok": True, "gig": dict(gig), "dm_key": msg_key(poster, worker)}
+    return {"ok": True, "gig": dict(updated), "dm_key": msg_key(poster, worker)}
 
 @app.post("/api/dm")
 def send_dm(req: MsgReq):
@@ -272,8 +276,9 @@ def complete_gig(gig_id: str, req: AcceptReq):
         conn.execute("INSERT INTO messages (from_user,to_user,text,context,time) VALUES (?,?,?,?,?)",
                      ("system", poster, f"Gig '{gig['title']}' completed. Worker has been paid ₹{payout:.2f} (97%).", "", datetime.now(timezone.utc).isoformat()))
     conn.commit()
+    updated = conn.execute("SELECT * FROM gigs WHERE id=?", (gig_id,)).fetchone()
     conn.close()
-    return {"ok": True, "gig": dict(gig)}
+    return {"ok": True, "gig": dict(updated)}
 
 # --- OTP Mock System (replace with Twilio/Msg91 for real SMS) ---
 import random, time
