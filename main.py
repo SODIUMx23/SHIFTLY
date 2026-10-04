@@ -387,6 +387,18 @@ def _unique_username(conn, base):
             return cand
     return f"user{uuid.uuid4().hex[:8]}"
 
+def config_looks_ready() -> bool:
+    """True only when the values are present AND plausibly real.
+    Stops a leftover placeholder from flipping the button on, which would
+    otherwise fail later as a confusing Firebase error in the browser."""
+    if not (FIREBASE_PROJECT_ID and FIREBASE_API_KEY and GOOGLE_AUTH_AVAILABLE):
+        return False
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,62}", FIREBASE_PROJECT_ID):
+        return False
+    if not re.fullmatch(r"AIza[0-9A-Za-z_\-]{35}", FIREBASE_API_KEY):   # 39 chars
+        return False
+    return True
+
 def verify_firebase_id_token(token: str) -> dict:
     """Verify a Firebase ID token using Google's public certs. No service account."""
     if not FIREBASE_PROJECT_ID:
@@ -415,7 +427,7 @@ def verify_firebase_id_token(token: str) -> dict:
 def auth_config():
     """Public web config for the browser. Firebase web config is not a secret."""
     return {
-        "google_sign_in": bool(FIREBASE_PROJECT_ID and FIREBASE_API_KEY and GOOGLE_AUTH_AVAILABLE),
+        "google_sign_in": config_looks_ready(),
         "firebase": {
             "apiKey": FIREBASE_API_KEY,
             "authDomain": FIREBASE_AUTH_DOMAIN,
