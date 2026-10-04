@@ -315,6 +315,27 @@ def otp_verify(req: OtpVerifyReq):
         return {"ok": False, "error": "Incorrect OTP. Try again."}
     # Verify success — allow registration
     return {"ok": True, "phone": phone, "message": "Verified. Proceed to profile."}
+def _load_dotenv(path=".env"):
+    """Minimal .env loader so config can live in one file. No extra dependency.
+    Real environment variables always win, so Render/CI settings are unaffected."""
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = val
+    except Exception as e:
+        print(f"[config] could not read {path}: {e}")
+
+_load_dotenv()
+
 # ---------------------------------------------------------------------------
 # Google Sign-In (Firebase Authentication) — free tier, no service account
 # ---------------------------------------------------------------------------
