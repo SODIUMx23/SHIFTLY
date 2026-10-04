@@ -352,9 +352,11 @@ ALLOWED_EMAIL_DOMAINS = [d.strip().lower().lstrip("@")
 try:
     from google.oauth2 import id_token as google_id_token
     from google.auth.transport import requests as google_requests
+    from google.auth.exceptions import TransportError
     GOOGLE_AUTH_AVAILABLE = True
 except Exception:
     GOOGLE_AUTH_AVAILABLE = False
+    TransportError = None
 
 class GoogleAuthReq(BaseModel):
     id_token: str
@@ -415,7 +417,18 @@ def verify_firebase_id_token(token: str) -> dict:
             token, google_requests.Request(), audience=FIREBASE_PROJECT_ID)
     except Exception as e:
         msg = str(e) or e.__class__.__name__
-        if "certificate" in msg.lower() or "transport" in msg.lower() or "connection" in msg.lower():
+        # Distinguish "Google was unreachable" (our problem, 503, retryable) from
+        # "this token is junk" (caller's problem, 401). Match on exception TYPE:
+        # an unknown key id also says "certificate", but that is a bad token, not
+        # a network failure, and reporting it as 503 sends you debugging the
+        # wrong thing entirely.
+        network_types = tuple(
+            t for t in (globals().get("TransportError"), getattr(getattr(google_requests, "exceptions", None), "TransportError", None)) if t
+        )
+        is_network = isinstance(e, network_types) if network_types else False
+        if not is_network and isinstance(e, (ConnectionError, TimeoutError, OSError)):
+            is_network = True
+        if is_network:
             raise AuthError("cert_fetch_failed",
                             f"Could not reach Google to verify the token: {msg}", 503)
         raise AuthError("bad_token", f"Could not verify Google token: {msg}", 401)
