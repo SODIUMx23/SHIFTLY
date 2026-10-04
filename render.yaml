@@ -7,3 +7,21 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11
+
+      # --- Google Sign-In (Firebase) -------------------------------------
+      # `sync: false` means Render asks you for the value and never reads it
+      # from git. Fill these in the Render dashboard after creating your
+      # Firebase project. See SETUP-GOOGLE-LOGIN.md.
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_API_KEY
+        sync: false
+      - key: FIREBASE_AUTH_DOMAIN
+        sync: false
+      - key: FIREBASE_APP_ID
+        sync: false
+
+      # Optional. Comma-separated campus domains to restrict sign-in to,
+      # e.g. "vitstudent.ac.in,vit.ac.in". Leave empty for any Google account.
+      - key: ALLOWED_EMAIL_DOMAINS
+        sync: false

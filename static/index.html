@@ -70,8 +70,28 @@
       <p class="text-[#8B5A2B] font-medium text-sm">Indian Campus Gig Marketplace · UPI Wallet</p>
       <div class="flex justify-center gap-2 mt-3"><span class="w-10 h-0.5 bg-[#FF9933] rounded-full"></span><span class="w-10 h-0.5 bg-[#138808] rounded-full"></span><span class="w-10 h-0.5 bg-[#D4A843] rounded-full"></span></div>
     </div>
-    <!-- Phone Step -->
-    <form id="step-phone" onsubmit="sendOtp(event)" class="space-y-3">
+    <!-- Step 1: choose a sign-in method -->
+    <div id="step-choice" class="space-y-3">
+      <button type="button" id="google-btn" onclick="signInWithGoogle()" class="w-full flex items-center justify-center gap-3 bg-white hover:bg-[#FDF8F0] border-2 border-[#D9CDB8] hover:border-[#8B5A2B] rounded-2xl px-4 py-3.5 font-extrabold text-[#1F1812] transition shadow-sm">
+        <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.28-3.14.76-4.59l-7.97-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        Continue with Google
+      </button>
+      <p id="google-notice" class="hidden text-[11px] leading-relaxed text-[#8B5A2B] bg-[#FFF4E6] border border-[#FFCC80] rounded-xl px-3 py-2"></p>
+      <div class="flex items-center gap-3 pt-1">
+        <span class="flex-1 h-px bg-[#E8D9C3]"></span>
+        <span class="text-[10px] font-extrabold uppercase tracking-widest text-[#8B7355]">or</span>
+        <span class="flex-1 h-px bg-[#E8D9C3]"></span>
+      </div>
+      <button type="button" onclick="showEntryStep('phone')" class="w-full btn-secondary">Use mobile number · मोबाइल नंबर</button>
+    </div>
+
+    <!-- Step 2: mobile number -->
+    <form id="step-phone" onsubmit="sendOtp(event)" class="space-y-3 hidden">
       <div>
         <label class="block text-[11px] font-extrabold uppercase tracking-widest text-[#8B5A2B] mb-1.5">Mobile Number · मोबाइल</label>
         <div class="flex gap-2">
@@ -81,14 +101,20 @@
         <p class="text-[11px] text-[#8B7355] mt-1">We will send a 6-digit OTP to verify you.</p>
       </div>
       <button type="submit" class="w-full btn-primary">Send OTP · OTP भेजें</button>
+      <button type="button" onclick="showEntryStep('choice')" class="w-full text-[11px] font-bold text-[#8B7355] hover:text-[#1F1812]">&larr; Back</button>
     </form>
 
-    <!-- OTP Step (hidden) -->
+    <!-- Step 3: OTP (hidden) -->
     <form id="step-otp" onsubmit="verifyOtp(event)" class="space-y-3 hidden">
       <div class="text-center"><p class="text-xs text-[#5C554D]">OTP sent to <strong id="show-phone" class="text-[#1F1812]">+91 ...</strong></p><p class="text-[10px] text-[#8B7355] mt-0.5">Expires in 5 minutes · 5 मिनट में समाप्त</p></div>
       <input id="otp-code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required placeholder="000000" class="w-full text-center pin-input bg-[#FDF8F0]" />
       <div class="flex gap-2"><button type="button" onclick="resendOtp()" class="btn-secondary flex-1 text-xs">Resend · फिर भेजें</button><button type="submit" class="btn-green flex-1">Verify · पुष्टि करें</button></div>
+      <button type="button" onclick="showEntryStep('phone')" class="w-full text-[11px] font-bold text-[#8B7355] hover:text-[#1F1812]">&larr; Back</button>
     </form>
+
+    <!-- Step 4: profile (hidden) -->
+    <form id="step-profile" onsubmit="handleRegister(event)" class="space-y-3 hidden">
+      <div id="profile-banner" class="hidden text-[11px] leading-relaxed text-[#1B5E20] bg-[#E8F5E9] border border-[#A5D6A7] rounded-xl px-3 py-2"></div>
       <div class="grid grid-cols-2 gap-3">
         <div><label class="block text-[11px] font-extrabold uppercase tracking-widest text-[#8B5A2B] mb-1.5">Name</label><input id="reg-name" type="text" required placeholder="Full name" class="w-full bg-[#FDF8F0]" /></div>
         <div><label class="block text-[11px] font-extrabold uppercase tracking-widest text-[#8B5A2B] mb-1.5">Role</label><select id="reg-role" class="w-full bg-[#FDF8F0]"><option>Poster / Host</option><option>Worker / Runner</option><option>Both</option></select></div>
@@ -110,6 +136,7 @@
       </div>
       <button type="submit" class="w-full btn-primary mt-1">Join Shiftly</button>
       <p class="text-center text-[11px] text-[#8B7355]">Multiple devices can join — use the same URL with different usernames.</p>
+      <button type="button" onclick="showEntryStep('choice')" class="w-full text-[11px] font-bold text-[#8B7355] hover:text-[#1F1812]">&larr; Back</button>
     </form>
   </div>
 </section>
@@ -258,6 +285,12 @@
         <div class="bg-white rounded-3xl p-6 shadow-sm border border-[#E8D9C3]"><h4 class="font-extrabold mb-2 text-[#1F1812]">About · परिचय</h4><p class="text-sm text-[#5C554D] leading-relaxed">This is a real-time Indian campus gig marketplace prototype. Multi-device sync, SQLite database, UPI wallet flow, Hindi/English labels, and Swiggy-style card UX. Share the URL with friends to test live gigs.</p></div>
         <div class="bg-white rounded-3xl p-6 shadow-sm border border-[#E8D9C3]"><h4 class="font-extrabold mb-2 text-[#1F1812]">How It Works · कैसे काम करता है</h4><ul class="text-sm text-[#5C554D] list-disc pl-4 space-y-1 leading-relaxed"><li>Post a gig with UPI escrow hold (3% host fee).</li><li>Other devices see it instantly via SQLite server.</li><li>Click <strong>Take Gig</strong> — DM opens automatically.</li><li>Complete to release 97% to worker via EOD settlement.</li></ul></div>
       </div>
+      <div class="bg-white rounded-3xl p-6 shadow-sm border border-[#E8D9C3]">
+        <h4 class="font-extrabold mb-2 text-[#1F1812]">Account · खाता</h4>
+        <p class="text-[10px] font-extrabold uppercase tracking-widest text-[#8B7355] mb-1">Signed in as</p>
+        <p id="profile-email" class="text-sm font-mono font-bold text-[#1F1812] break-all mb-3">—</p>
+        <button onclick="signOut()" class="btn-secondary text-sm">Sign out</button>
+      </div>
     </section>
 
   </main>
@@ -307,6 +340,19 @@
 let currentUser = null;
 let currentDMWith = null;
 let currentTab = 'marketplace';
+let pendingUsername = null;   // set once Google or mobile has been verified
+let firebaseReady = false;
+
+const ENTRY_STEPS = ['step-choice','step-phone','step-otp','step-profile'];
+function showEntryStep(step){
+  ENTRY_STEPS.forEach(id=>{ const el=$(id); if(el) el.classList.toggle('hidden', id !== 'step-'+step); });
+}
+function googleNotice(msg){ const el=$('google-notice'); if(!el) return; el.textContent=msg; el.classList.remove('hidden'); }
+async function enterApp(){
+  $('entry-screen').classList.add('hidden');
+  $('app-shell').classList.remove('hidden');
+  await loadUser(); renderGigs(); loadDMList();
+}
 
 function $(id){return document.getElementById(id);}
 function fmt(n){const v=Math.round((n||0)*100)/100; return '₹'+v.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}
@@ -347,38 +393,38 @@ async function verifyOtp(e){
     const r = await fetch('/api/otp/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:phone, otp:otp})});
     const data = await r.json();
     if(data.ok){
-      // Now register with this phone as username + profile info
-      const payload = {username:phone.replace(/[^0-9]/g,''), name:$('reg-name').value, role:$('reg-role').value, major:$('reg-major').value, dorm:$('reg-dorm').value, avatar_color:selectedAccent, upi_id:$('reg-upi').value.trim()};
-      const reg = await fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-      const regData = await reg.json();
-      if(regData.ok){
-        localStorage.setItem('cp_user', payload.username);
-        currentUser = payload.username;
-        $('entry-screen').classList.add('hidden');
-        $('app-shell').classList.remove('hidden');
-        await loadUser();
-        renderGigs(); loadDMList();
-        showToast('Welcome — '+regData.user.name+', phone verified!','success');
-      } else { showToast('Profile save failed','error'); }
+      // Mobile verified — collect the profile, then register.
+      pendingUsername = phone.replace(/[^0-9]/g,'');
+      const banner = $('profile-banner');
+      banner.innerHTML = '&#128241; Mobile <strong>+91 '+phone+'</strong> verified. Add your details to continue.';
+      banner.classList.remove('hidden');
+      showEntryStep('profile');
+      showToast('Mobile verified · मोबाइल सत्यापित','success');
     } else { showToast(data.error||'Wrong OTP','error'); }
   }catch(err){showToast('Verification error','error');}
 }
 async function handleRegister(e){
   e.preventDefault();
-  const username = $('reg-username').value.trim().toLowerCase().replace(/[^a-z0-9]/g,'');
-  if(!username){showToast('Please enter a valid username','error');return;}
-  const payload = {username, name:$('reg-name').value, role:$('reg-role').value, major:$('reg-major').value, dorm:$('reg-dorm').value, avatar_color:selectedAccent, upi_id:$('reg-upi').value.trim()};
+  // Username comes from the verified identity (Google account or mobile number),
+  // never from a free-text field the user can type.
+  let username = pendingUsername;
+  if(!username){
+    const el = $('reg-username');
+    username = el ? el.value.trim().toLowerCase().replace(/[^a-z0-9]/g,'') : '';
+  }
+  if(!username){
+    showToast('Verify with Google or your mobile number first','error');
+    showEntryStep('choice'); return;
+  }
+  const payload = {username, name:$('reg-name').value.trim(), role:$('reg-role').value, major:$('reg-major').value.trim(), dorm:$('reg-dorm').value.trim(), avatar_color:selectedAccent, upi_id:$('reg-upi').value.trim()};
   try{
     const r = await fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const data = await r.json();
     if(data.ok){
       localStorage.setItem('cp_user', username);
       currentUser = username;
-      $('entry-screen').classList.add('hidden');
-      $('app-shell').classList.remove('hidden');
-      await loadUser();
-      renderGigs();
-      loadDMList();
+      pendingUsername = null;
+      await enterApp();
       showToast('Welcome to Shiftly — '+data.user.name,'success');
     } else { showToast('Registration failed','error'); }
   }catch(err){showToast('Server error: '+err.message,'error');}
@@ -401,6 +447,7 @@ async function loadUser(){
       $('profile-major').textContent = data.major;
       $('profile-dorm').textContent = data.dorm;
       $('profile-upi').textContent = data.upi_id || '—';
+    const pe = $('profile-email'); if(pe) pe.textContent = data.email || 'Signed in with mobile number';
       $('profile-balance').textContent = fmt(data.balance);
       $('profile-rating').textContent = data.rating;
       const colors = {indigo:'from-[#4A2A14] to-[#FF9933]', emerald:'from-[#138808] to-[#0F6B0B]', amber:'from-[#D4A843] to-[#B8860B]', rose:'from-[#B83A3A] to-[#7A2B2B]', violet:'from-[#6B3FA0] to-[#4A2568]'};
@@ -583,33 +630,101 @@ window.addEventListener('load',async ()=>{
     loadDMList();
   } else {
     setAccent('indigo');
+    showEntryStep('choice');
   }
+  initFirebaseAuth();
   setInterval(()=>{ if(currentUser&&currentTab==='marketplace') renderGigs(); if(currentUser&&currentTab==='dms'){ loadDMList(); if(currentDMWith) loadDMMessages(); } }, 900);
   $('p-rew').addEventListener('input',()=>{ const v=parseFloat($('p-rew').value)||0; $('fee-preview').textContent = fmt(v)+' held · Worker gets '+fmt(v*0.97); });
 });
 </script>
 
 <script>
-window.signInWithGoogle = async function(){
+async function initFirebaseAuth(){
+  if(typeof firebase === 'undefined'){
+    googleNotice('Firebase SDK could not load — the page could not reach the internet. Google sign-in is unavailable; you can still use mobile sign-in.');
+    return false;
+  }
   try{
-    if(typeof firebase==='undefined'){showToast('Firebase not loaded. Check internet.', 'error'); return;}
+    const r = await fetch('/api/auth/config');
+    const cfg = await r.json();
+    if(!cfg.google_sign_in){
+      googleNotice('Google sign-in is not switched on yet. Add the FIREBASE_* environment variables — see SETUP-GOOGLE-LOGIN.md in the repo.');
+      return false;
+    }
+    if(!firebase.apps.length) firebase.initializeApp(cfg.firebase);
+    firebaseReady = true;
+    return true;
+  }catch(err){
+    googleNotice('Could not load auth config from the server: ' + (err.message||err));
+    return false;
+  }
+}
+
+window.signInWithGoogle = async function(){
+  if(!firebaseReady){
+    const ok = await initFirebaseAuth();
+    if(!ok) return;
+  }
+  const btn = $('google-btn');
+  try{
+    if(btn){ btn.disabled = true; btn.classList.add('opacity-60'); }
     const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
     const result = await firebase.auth().signInWithPopup(provider);
-    const user = result.user;
-    const email = user.email || '';
-    const name = user.displayName || '';
-    // Auto-register using email local-part as username
-    const username = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,20) || 'user'+Date.now();
-    // Fill fields automatically for speed
-    $('reg-username').value = username;
-    $('reg-name').value = name || 'Student';
-    $('reg-role').value = 'Both';
-    $('reg-major').value = 'B.Tech';
-    $('reg-dorm').value = 'VIT Hostel';
-    $('reg-upi').value = email;
-    // Auto-submit registration
-    await handleRegister(new Event('submit'));
-  }catch(err){showToast('Google sign-in failed: '+(err.message||err), 'error');}
+    const email  = (result.user.email || '').toLowerCase();
+
+    // Send the signed ID token to our own server so IT can verify it.
+    const idToken = await result.user.getIdToken();
+    const r = await fetch('/api/auth/google',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id_token:idToken})});
+    const data = await r.json();
+    if(!data.ok){ showToast(data.error || 'Google sign-in was rejected by the server','error'); return; }
+
+    localStorage.setItem('cp_id_token', idToken);   // expires in 1h; used when we lock down the API
+    localStorage.setItem('cp_user', data.username);
+    pendingUsername = data.username;
+    currentUser = data.username;
+
+    if(data.profile_complete){
+      await enterApp();
+      showToast('Signed in as ' + email + ' · verified','success');
+    } else {
+      // First time here — prefill what Google gave us and ask for the rest.
+      $('reg-name').value  = data.user.name || '';
+      $('reg-role').value  = data.user.role || 'Both';
+      $('reg-major').value = data.user.major || '';
+      $('reg-dorm').value  = data.user.dorm || '';
+      $('reg-upi').value   = data.user.upi_id || '';
+      const banner = $('profile-banner');
+      banner.innerHTML = '&#9989; Google account <strong>' + email + '</strong> verified. Just finish your profile.';
+      banner.classList.remove('hidden');
+      showEntryStep('profile');
+      showToast('Google verified — one step left','success');
+    }
+  }catch(err){
+    const code = (err && err.code) || '';
+    if(code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') showToast('Sign-in cancelled','info');
+    else if(code === 'auth/unauthorized-domain') showToast('This domain is not authorised in Firebase. Add it under Authentication &rarr; Settings &rarr; Authorized domains.','error');
+    else if(code === 'auth/operation-not-allowed') showToast('Google provider is disabled. Enable it in Firebase &rarr; Authentication &rarr; Sign-in method.','error');
+    else if(code === 'auth/popup-blocked') showToast('Popup blocked — allow popups for this site and retry.','error');
+    else showToast('Google sign-in failed: ' + (err.message || err),'error');
+  }finally{
+    if(btn){ btn.disabled = false; btn.classList.remove('opacity-60'); }
+  }
+};
+
+window.signOut = async function(){
+  try{
+    if(typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) await firebase.auth().signOut();
+  }catch(e){}
+  localStorage.removeItem('cp_user');
+  localStorage.removeItem('cp_id_token');
+  currentUser = null; pendingUsername = null;
+  ['reg-name','reg-major','reg-dorm','reg-upi'].forEach(id=>{ const el=$(id); if(el) el.value=''; });
+  const banner = $('profile-banner'); if(banner) banner.classList.add('hidden');
+  $('app-shell').classList.add('hidden');
+  $('entry-screen').classList.remove('hidden');
+  showEntryStep('choice');
+  showToast('Signed out','info');
 };
 </script>
 </body>

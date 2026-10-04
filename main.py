@@ -1,5 +1,6 @@
-import sqlite3, time, random, uuid
+import sqlite3, time, random, uuid, os, re
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -314,6 +315,156 @@ def otp_verify(req: OtpVerifyReq):
         return {"ok": False, "error": "Incorrect OTP. Try again."}
     # Verify success — allow registration
     return {"ok": True, "phone": phone, "message": "Verified. Proceed to profile."}
+# ---------------------------------------------------------------------------
+# Google Sign-In (Firebase Authentication) — free tier, no service account
+# ---------------------------------------------------------------------------
+# Set these env vars (Render dashboard / shell). Only PROJECT_ID is needed for
+# token verification; the rest are public web config handed to the browser.
+FIREBASE_PROJECT_ID  = os.environ.get("FIREBASE_PROJECT_ID", "").strip()
+FIREBASE_API_KEY     = os.environ.get("FIREBASE_API_KEY", "").strip()
+FIREBASE_AUTH_DOMAIN = os.environ.get("FIREBASE_AUTH_DOMAIN", "").strip()
+FIREBASE_APP_ID      = os.environ.get("FIREBASE_APP_ID", "").strip()
+# Optional, comma-separated: "vitstudent.ac.in,vit.ac.in". Empty = any Google account.
+ALLOWED_EMAIL_DOMAINS = [d.strip().lower().lstrip("@")
+                         for d in os.environ.get("ALLOWED_EMAIL_DOMAINS", "").split(",") if d.strip()]
+
+try:
+    from google.oauth2 import id_token as google_id_token
+    from google.auth.transport import requests as google_requests
+    GOOGLE_AUTH_AVAILABLE = True
+except Exception:
+    GOOGLE_AUTH_AVAILABLE = False
+
+class GoogleAuthReq(BaseModel):
+    id_token: str
+
+class AuthError(Exception):
+    def __init__(self, code, message, status=401):
+        self.code, self.message, self.status = code, message, status
+        super().__init__(message)
+
+def _migrate_users_table():
+    """Add Google-auth columns to an existing users table (safe to re-run)."""
+    conn = get_db()
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    for name, ddl in (("email", "TEXT"), ("auth_uid", "TEXT"), ("email_verified", "INTEGER DEFAULT 0")):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {name} {ddl}")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) "
+                 "WHERE email IS NOT NULL AND email != ''")
+    conn.commit()
+    conn.close()
+
+def _unique_username(conn, base):
+    """Turn an email local-part into a free username."""
+    base = re.sub(r"[^a-z0-9]", "", (base or "").lower())[:20] or "user"
+    if not conn.execute("SELECT 1 FROM users WHERE username=?", (base,)).fetchone():
+        return base
+    for n in range(2, 9999):
+        cand = f"{base}{n}"
+        if not conn.execute("SELECT 1 FROM users WHERE username=?", (cand,)).fetchone():
+            return cand
+    return f"user{uuid.uuid4().hex[:8]}"
+
+def verify_firebase_id_token(token: str) -> dict:
+    """Verify a Firebase ID token using Google's public certs. No service account."""
+    if not FIREBASE_PROJECT_ID:
+        raise AuthError("not_configured",
+                        "Google sign-in is not configured on this server yet. "
+                        "Set FIREBASE_PROJECT_ID and the other FIREBASE_* env vars.", 503)
+    if not GOOGLE_AUTH_AVAILABLE:
+        raise AuthError("missing_dependency",
+                        "google-auth is not installed on the server. Run: pip install -r requirements.txt", 503)
+    if not token or token.count(".") != 2:
+        raise AuthError("bad_token", "Malformed ID token.", 400)
+    try:
+        claims = google_id_token.verify_firebase_token(
+            token, google_requests.Request(), audience=FIREBASE_PROJECT_ID)
+    except Exception as e:
+        msg = str(e) or e.__class__.__name__
+        if "certificate" in msg.lower() or "transport" in msg.lower() or "connection" in msg.lower():
+            raise AuthError("cert_fetch_failed",
+                            f"Could not reach Google to verify the token: {msg}", 503)
+        raise AuthError("bad_token", f"Could not verify Google token: {msg}", 401)
+    if not claims.get("sub"):
+        raise AuthError("bad_token", "Token is missing a subject (sub) claim.", 401)
+    return claims
+
+@app.get("/api/auth/config")
+def auth_config():
+    """Public web config for the browser. Firebase web config is not a secret."""
+    return {
+        "google_sign_in": bool(FIREBASE_PROJECT_ID and FIREBASE_API_KEY and GOOGLE_AUTH_AVAILABLE),
+        "firebase": {
+            "apiKey": FIREBASE_API_KEY,
+            "authDomain": FIREBASE_AUTH_DOMAIN,
+            "projectId": FIREBASE_PROJECT_ID,
+            "appId": FIREBASE_APP_ID,
+        },
+        "allowed_domains": ALLOWED_EMAIL_DOMAINS,
+    }
+
+@app.post("/api/auth/google")
+def auth_google(req: GoogleAuthReq):
+    """Verify a Google sign-in and create/link the local account."""
+    try:
+        claims = verify_firebase_id_token(req.id_token)
+    except AuthError as e:
+        return JSONResponse(status_code=e.status, content={"ok": False, "error": e.message, "code": e.code})
+
+    email = (claims.get("email") or "").strip().lower()
+    if not email:
+        return JSONResponse(status_code=400, content={
+            "ok": False, "code": "no_email",
+            "error": "That Google account has no email address attached."})
+    if not claims.get("email_verified"):
+        return JSONResponse(status_code=403, content={
+            "ok": False, "code": "email_unverified",
+            "error": "That Google account's email is not verified with Google."})
+    if ALLOWED_EMAIL_DOMAINS:
+        domain = email.rsplit("@", 1)[-1]
+        if domain not in ALLOWED_EMAIL_DOMAINS:
+            return JSONResponse(status_code=403, content={
+                "ok": False, "code": "domain_not_allowed",
+                "error": f"{domain} is not an allowed campus domain. Allowed: {', '.join(ALLOWED_EMAIL_DOMAINS)}"})
+
+    uid = claims.get("sub") or ""
+    conn = get_db()
+    row = conn.execute("SELECT * FROM users WHERE email IS NOT NULL AND email != '' AND lower(email)=?",
+                       (email,)).fetchone()
+    if not row and uid:
+        row = conn.execute("SELECT * FROM users WHERE auth_uid=?", (uid,)).fetchone()
+
+    is_new = False
+    if row:
+        conn.execute("UPDATE users SET email=?, auth_uid=?, email_verified=1, "
+                     "name=CASE WHEN ? != '' THEN ? ELSE name END WHERE username=?",
+                     (email, uid, claims.get("name") or "", claims.get("name") or "", row["username"]))
+        conn.commit()
+        username = row["username"]
+    else:
+        username = _unique_username(conn, email.split("@")[0])
+        conn.execute(
+            "INSERT INTO users (username,name,role,major,dorm,avatar_color,balance,escrow,"
+            "pending_payout,total_earned,rating,upi_id,created_at,email,auth_uid,email_verified) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (username, claims.get("name") or email.split("@")[0].title(), "Both", "", "",
+             "indigo", 250, 0, 0, 0, 5.0, "", datetime.now(timezone.utc).isoformat(),
+             email, uid, 1))
+        conn.commit()
+        is_new = True
+
+    updated = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+    conn.close()
+    user = dict(updated)
+    return {
+        "ok": True, "user": user, "is_new": is_new, "email": email,
+        "username": username,
+        "profile_complete": bool((user.get("major") or "").strip() and (user.get("dorm") or "").strip()),
+    }
+
+_migrate_users_table()  # runs after the helper above is defined
+
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 if __name__ == "__main__":
