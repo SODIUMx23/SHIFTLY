@@ -660,6 +660,22 @@ async function initFirebaseAuth(){
   }
 }
 
+// Firebase only allows sign-in from domains you have explicitly approved. When it
+// refuses, name the exact domain to add - otherwise you are hunting through the
+// console guessing, and "localhost" already being listed makes it easy to assume
+// the setting is fine when it is not.
+function showDomainHelp(host){
+  const el = $('google-notice');
+  if(el){
+    el.innerHTML = '<strong>&#9888; Firebase has not approved this domain.</strong><br>' +
+      'Firebase console &rarr; <strong>Authentication &rarr; Settings &rarr; Authorized domains</strong> &rarr; Add domain, using exactly:' +
+      '<div class="mt-2"><code class="block bg-white border border-[#D9CDB8] rounded-lg px-2 py-1.5 text-[12px] font-mono select-all break-all">' + host + '</code></div>' +
+      '<div class="mt-1.5 text-[10px] text-[#8B7355]">No https://, no trailing slash, no path. Then reload this page.</div>';
+    el.classList.remove('hidden');
+  }
+  showToast('Add ' + host + ' to Firebase Authorized domains','error');
+}
+
 window.signInWithGoogle = async function(){
   if(!firebaseReady){
     const ok = await initFirebaseAuth();
@@ -703,7 +719,7 @@ window.signInWithGoogle = async function(){
   }catch(err){
     const code = (err && err.code) || '';
     if(code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') showToast('Sign-in cancelled','info');
-    else if(code === 'auth/unauthorized-domain') showToast('This domain is not authorised in Firebase. Add it under Authentication &rarr; Settings &rarr; Authorized domains.','error');
+    else if(code === 'auth/unauthorized-domain') showDomainHelp(window.location.hostname);
     else if(code === 'auth/operation-not-allowed') showToast('Google provider is disabled. Enable it in Firebase &rarr; Authentication &rarr; Sign-in method.','error');
     else if(code === 'auth/popup-blocked') showToast('Popup blocked — allow popups for this site and retry.','error');
     else showToast('Google sign-in failed: ' + (err.message || err),'error');
