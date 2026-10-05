@@ -999,6 +999,7 @@ window.addEventListener('load',async ()=>{
     showEntryStep('choice');
   }
   initFirebaseAuth();
+  handleGoogleRedirectResult();
   setInterval(()=>{ if(currentUser&&currentTab==='marketplace') renderGigs(); if(currentUser&&currentTab==='dms'){ loadDMList(); if(currentDMWith) loadDMMessages(); } }, 900);
   $('p-rew').addEventListener('input',()=>{ const v=parseFloat($('p-rew').value)||0; $('fee-preview').textContent = fmt(v)+' held · Worker gets '+fmt(v*0.97); });
 });
@@ -1042,24 +1043,68 @@ function showDomainHelp(host){
   showToast('Add ' + host + ' to Firebase Authorized domains','error');
 }
 
+// Coming BACK from a full-page Google redirect (the popup-free path)?
+// If so, complete the sign-in, but treat it fully idempotently.
+async function handleGoogleRedirectResult(){
+  if(typeof firebase === 'undefined') return;
+  try{
+    if(!firebaseReady && !(await initFirebaseAuth())) return;
+    const res = await firebase.auth().getRedirectResult();
+    if(res && res.user){
+      showToast('Welcome back — finishing sign-in...','info');
+      await completeGoogleSignIn(res.user);
+    }
+  }catch(err){
+    const code = (err && err.code) || '';
+    if(code === 'auth/unauthorized-domain') showDomainHelp(window.location.hostname);
+    else if(code) console.warn('redirect sign-in:', code, err && err.message);
+  }
+}
+
 window.signInWithGoogle = async function(){
   if(!firebaseReady){
     const ok = await initFirebaseAuth();
     if(!ok) return;
   }
   const btn = $('google-btn');
+  let provider = null;
   try{
     if(btn){ btn.disabled = true; btn.classList.add('opacity-60'); }
-    const provider = new firebase.auth.GoogleAuthProvider();
+    provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
     const result = await firebase.auth().signInWithPopup(provider);
-    const email  = (result.user.email || '').toLowerCase();
+    await completeGoogleSignIn(result.user);
+  }catch(err){
+    const code = (err && err.code) || '';
+    if(code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') showToast('Sign-in cancelled','info');
+    else if(code === 'auth/popup-blocked' || code === 'auth/web-storage-unsupported' || code === 'auth/operation-not-supported-in-this-environment'){
+      // e.g. inside an embedded preview, or a browser that hates popups:
+      // fall back to navigating the page itself. getRedirectResult() picks the
+      // sign-in back up after Google sends us home.
+      showToast('Popup blocked here — opening the sign-in page directly...','info');
+      setTimeout(()=>{ firebase.auth().signInWithRedirect(provider).catch(e=>{
+        showToast((e && e.message) || 'Could not open the sign-in page','error');
+      }); }, 900);
+    }
+    else if(code === 'auth/unauthorized-domain') showDomainHelp(window.location.hostname);
+    else if(code === 'auth/operation-not-allowed') showToast('Google provider is disabled. Enable it in Firebase → Authentication → Sign-in method.','error');
+    else showToast('Google sign-in failed: ' + (err.message || err),'error');
+  }finally{
+    if(btn){ btn.disabled = false; btn.classList.remove('opacity-60'); }
+  }
+};
 
-    // Send the signed ID token to our own server so IT can verify it.
-    const idToken = await result.user.getIdToken();
-    const r = await fetch('/api/auth/google',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id_token:idToken})});
-    const data = await r.json();
-    if(!data.ok){ showToast(data.error || 'Google sign-in was rejected by the server','error'); return; }
+// Shared tail of every Google sign-in path (popup or redirect). Verifies with
+// our server, stores the session, then either enters the app or finishes the
+// profile. Returns true once the user is in.
+async function completeGoogleSignIn(user){
+  const email  = (user.email || '').toLowerCase();
+
+  // Send the signed ID token to our own server so IT can verify it.
+  const idToken = await user.getIdToken();
+  const r = await fetch('/api/auth/google',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id_token:idToken})});
+  const data = await r.json();
+  if(!data.ok){ showToast(data.error || 'Google sign-in was rejected by the server','error'); return false; }
 
     sessionToken = data.session;
     localStorage.setItem('cp_session', data.session);   // our 24h session — API calls use this now
@@ -1083,17 +1128,8 @@ window.signInWithGoogle = async function(){
       showEntryStep('profile');
       showToast('Google verified — one step left','success');
     }
-  }catch(err){
-    const code = (err && err.code) || '';
-    if(code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') showToast('Sign-in cancelled','info');
-    else if(code === 'auth/unauthorized-domain') showDomainHelp(window.location.hostname);
-    else if(code === 'auth/operation-not-allowed') showToast('Google provider is disabled. Enable it in Firebase &rarr; Authentication &rarr; Sign-in method.','error');
-    else if(code === 'auth/popup-blocked') showToast('Popup blocked — allow popups for this site and retry.','error');
-    else showToast('Google sign-in failed: ' + (err.message || err),'error');
-  }finally{
-    if(btn){ btn.disabled = false; btn.classList.remove('opacity-60'); }
-  }
-};
+  return true;
+}
 
 window.signOut = async function(){
   try{
