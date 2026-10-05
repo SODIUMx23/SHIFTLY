@@ -193,6 +193,11 @@
           <select id="filter-cat" onchange="renderGigs();" class="bg-white border-[#D9CDB8] rounded-xl px-3 py-2 text-xs shadow-sm"><option value="All">All</option><option>Food Run</option><option>Tutoring</option><option>Heavy Lifting</option><option>Academic</option><option>Tech Support</option></select>
         </div>
       </div>
+      <div class="flex gap-2 mb-4 flex-wrap">
+        <button id="chip-all" onclick="setFeedView('All')" class="feed-chip text-xs font-extrabold px-3.5 py-1.5 rounded-full border bg-[#FFF4E6] text-[#8B4500] border-[#FFCC80] shadow-sm transition">All Gigs</button>
+        <button id="chip-open" onclick="setFeedView('Open')" class="feed-chip text-xs font-extrabold px-3.5 py-1.5 rounded-full border text-[#5C554D] border-[#D9CDB8] bg-white shadow-sm transition hover:border-[#FF9933]">Open Only</button>
+        <button id="chip-mine" onclick="setFeedView('Mine')" class="feed-chip text-xs font-extrabold px-3.5 py-1.5 rounded-full border text-[#5C554D] border-[#D9CDB8] bg-white shadow-sm transition hover:border-[#FF9933]">My Gigs</button>
+      </div>
       <div id="gig-feed" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"></div>
     </section>
 
@@ -358,6 +363,42 @@
         <input id="ed-upi" type="text" maxlength="60" class="w-full bg-[#FDF8F0] border border-[#D9CDB8] rounded-xl px-3 py-2 text-sm font-mono" /></div>
       <p class="text-[10px] text-[#8B7355] leading-relaxed">Your username, wallet balance and rating can't be changed from here. Username is tied to your sign-in identity.</p>
       <button onclick="submitProfileEdit()" class="btn-primary w-full"><i class="fa-solid fa-floppy-disk mr-1.5"></i> Save Changes</button>
+    </div>
+  </div>
+  <div id="modal-gig" class="bg-white/95 backdrop-blur-xl max-w-md w-full rounded-3xl p-6 shadow-2xl relative hidden border border-[#E8D9C3] animate-[fadeUp_0.3s_ease]">
+    <div class="flex items-start justify-between gap-3 mb-1">
+      <span id="gd-cat" class="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded-md bg-[#FDF6E3] text-[#8B4513] border border-[#F0DC9E]"></span>
+      <button onclick="closeModals()" class="text-[#8B7355] hover:text-[#1F1812] text-xl leading-none">&times;</button>
+    </div>
+    <h3 id="gd-title" class="font-extrabold text-xl text-[#1F1812] leading-tight"></h3>
+    <div class="flex items-center gap-3 mt-2 text-[11px] text-[#8B7355] flex-wrap">
+      <span class="flex items-center gap-1"><i class="fa-solid fa-location-dot text-[#FF9933]"></i> <span id="gd-loc"></span></span>
+      <span class="flex items-center gap-1"><i class="fa-regular fa-clock text-[#FF9933]"></i> <span id="gd-time"></span></span>
+      <span id="gd-status"></span>
+    </div>
+    <div class="flex items-center gap-3 mt-3 p-3 rounded-2xl bg-[#FDF8F0] border border-[#E8D9C3]">
+      <div id="gd-avatar" class="w-10 h-10 rounded-full bg-gradient-to-tr from-[#FF9933] to-[#D46A1A] text-white flex items-center justify-center text-sm font-extrabold shadow"></div>
+      <div class="min-w-0">
+        <p class="text-xs font-extrabold text-[#1F1812] truncate">Host: <span id="gd-host"></span></p>
+        <p class="text-[10px] text-[#D4A843] font-extrabold"><span id="gd-host-rating"></span> rating</p>
+      </div>
+    </div>
+    <div class="mt-3 p-3 rounded-2xl bg-white border border-[#E8D9C3] text-xs text-[#5C554D] leading-relaxed" id="gd-instructions"></div>
+    <div class="mt-3 flex items-end justify-between">
+      <div>
+        <p class="text-[10px] font-extrabold uppercase tracking-widest text-[#8B7355]">Bounty</p>
+        <p id="gd-reward" class="text-2xl font-extrabold text-[#D46A1A]"></p>
+      </div>
+      <p id="gd-escrow-note" class="text-[10px] text-[#8B7355]"></p>
+    </div>
+    <div id="gd-actions" class="mt-4 space-y-2"></div>
+  </div>
+  <div id="modal-confirm" class="bg-white/95 backdrop-blur-xl max-w-xs w-full rounded-3xl p-6 shadow-2xl relative hidden border border-[#E8D9C3] animate-[fadeUp_0.3s_ease] z-[80]">
+    <h3 id="cf-title" class="font-extrabold text-[#1F1812] mb-2"></h3>
+    <p id="cf-body" class="text-xs text-[#5C554D] leading-relaxed mb-4"></p>
+    <div class="flex gap-2">
+      <button onclick="closeModals()" class="btn-secondary flex-1 text-sm">Back</button>
+      <button onclick="const cb=confirmCb; closeModals(); confirmCb=null; if(cb)cb();" class="btn-primary flex-1 text-sm">Confirm</button>
     </div>
   </div>
   <div id="modal-upi-pin" class="bg-white/95 backdrop-blur-xl max-w-md w-full rounded-3xl p-6 shadow-2xl relative hidden border border-[#E8D9C3] animate-[fadeUp_0.3s_ease]">
@@ -535,36 +576,97 @@ async function loadUser(){
 }
 
 // GIGS
+// --- premium feed helpers ---
+const CAT_ICONS = {'Food Run':'fa-bowl-food','Tutoring':'fa-book-open','Heavy Lifting':'fa-boxes-stacked','Academic':'fa-graduation-cap','Tech Support':'fa-laptop-code'};
+const STATUS_STYLE = {'OPEN':'bg-[#E8F5E9] text-[#1B5E20] border-[#C5E0C5]','IN_PROGRESS':'bg-[#FDF6E3] text-[#8B4513] border-[#F0DC9E]','COMPLETED':'bg-[#E8F0FE] text-[#1D4ED8] border-[#BFD3FA]','CANCELLED':'bg-[#FCEAE8] text-[#B83A3A] border-[#F5C5C5]'};
+let gigCache = {};
+let feedView = 'All';
+
+function timeAgo(iso){
+  const d = (Date.now() - new Date(iso).getTime())/1000;
+  if(d < 60) return 'just now';
+  if(d < 3600) return Math.floor(d/60)+'m ago';
+  if(d < 86400) return Math.floor(d/3600)+'h ago';
+  return Math.floor(d/86400)+'d ago';
+}
+function skeletonHtml(){
+  const card = `<div class="glass-card rounded-3xl p-5 space-y-3 animate-pulse">
+    <div class="flex justify-between"><div class="h-5 w-28 rounded-md bg-[#EFE6D8]"></div><div class="h-5 w-14 rounded-md bg-[#EFE6D8]"></div></div>
+    <div class="h-4 w-3/4 rounded bg-[#EFE6D8]"></div>
+    <div class="h-3 w-full rounded bg-[#EFE6D8]"></div>
+    <div class="h-3 w-2/3 rounded bg-[#EFE6D8]"></div>
+    <div class="pt-3 border-t border-[#EFE6D8] flex justify-between"><div class="h-4 w-24 rounded bg-[#EFE6D8]"></div><div class="h-6 w-16 rounded-full bg-[#EFE6D8]"></div></div>
+  </div>`;
+  return card.repeat(6);
+}
+function setFeedView(v){
+  feedView = v;
+  document.querySelectorAll('.feed-chip').forEach(b=>{
+    b.classList.remove('bg-[#FFF4E6]','text-[#8B4500]','border-[#FFCC80]');
+    b.classList.add('text-[#5C554D]','border-[#D9CDB8]');
+  });
+  const active = $('chip-'+v.toLowerCase());
+  if(active){ active.classList.add('bg-[#FFF4E6]','text-[#8B4500]','border-[#FFCC80]'); }
+  renderGigs();
+}
+
 async function renderGigs(){
   refreshRatedGigs();
+  const feed = $('gig-feed');
+  if(!feed.dataset.booted){ feed.innerHTML = skeletonHtml(); }
   try{
     const r = await fetch('/api/gigs');
     const data = await r.json();
-    const feed = $('gig-feed');
+    feed.dataset.booted = '1';
     feed.innerHTML = '';
+    (data.gigs||[]).forEach(g=>{ gigCache[g.id] = g; });
     const cat = $('filter-cat').value;
     const q = $('search-gigs').value.toLowerCase();
-    const list = (data.gigs||[]).filter(g=>g.status!=='CANCELLED'&&(cat==='All'||g.category===cat)&&(!q||g.title.toLowerCase().includes(q)));
-    if(list.length===0){feed.innerHTML='<div class="col-span-full text-center text-[#8B7355] py-10 text-sm">No gigs found. Post one on the Bazaar!</div>';return;}
+    const list = (data.gigs||[]).filter(g=>
+      g.status!=='CANCELLED'
+      && (feedView==='All' || (feedView==='Open' && g.status==='OPEN') || (feedView==='Mine' && (g.poster===currentUser || g.worker===currentUser)))
+      && (cat==='All'||g.category===cat)
+      && (!q||g.title.toLowerCase().includes(q)));
+    if(list.length===0){feed.innerHTML='<div class="col-span-full text-center text-[#8B7355] py-10 text-sm">No gigs here yet. Post one on the Bazaar!</div>';return;}
     list.forEach(g=>{
       const isPoster = g.poster===currentUser;
       const isWorker = g.worker===currentUser;
       const urgencyColor = g.urgency==='High'?'text-[#B83A3A]':g.urgency==='Medium'?'text-[#D4A843]':'text-[#138808]';
       const urgencyBg = g.urgency==='High'?'bg-[#FCEAE8] border-[#F5C5C5]':g.urgency==='Medium'?'bg-[#FDF6E3] border-[#F0DC9E]':'bg-[#E8F5E9] border-[#C5E0C5]';
+      const posterRating = (g.poster_rating ?? 5.0).toFixed(1);
       const card = document.createElement('div');
-      card.className = 'glass-card rounded-3xl p-5 space-y-3';
+      card.className = 'glass-card rounded-3xl p-5 space-y-3 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200';
+      card.onclick = ()=>openGigDetail(g.id);
+      const footBtn = isPoster
+        ? `<span class="flex items-center gap-1.5">
+             <span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#FF9933]/10 text-[#8B4500] border border-[#FFE0B2]">Your Gig</span>
+             ${g.status==='OPEN' ? `<button onclick="event.stopPropagation();cancelGig('${g.id}')" class="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#FCEAE8] text-[#B83A3A] border border-[#F5C5C5] hover:bg-[#F8D7D5] transition">Cancel</button>` : ''}
+             ${g.status==='IN_PROGRESS' ? `<button onclick="event.stopPropagation();askCompleteGig('${g.id}')" class="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#E8F5E9] text-[#138808] border border-[#C5E0C5] hover:bg-[#D9EEDB] transition">Mark Complete</button>` : ''}
+             ${g.status==='COMPLETED' && !ratedGigs.has(g.id) ? `<button onclick="event.stopPropagation();openRateModal('${g.id}','${g.worker}')" class="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#FDF6E3] text-[#8B4513] border border-[#F0DC9E] hover:bg-[#FBEEC8] transition">\u2605 Rate Worker</button>` : ''}
+           </span>`
+        : (isWorker
+           ? `<span class="flex items-center gap-1.5">
+                <span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#138808]/10 text-[#1B5E20] border border-[#C5E0C5]">Your Job</span>
+                ${g.status==='COMPLETED' && !ratedGigs.has(g.id) ? `<button onclick="event.stopPropagation();openRateModal('${g.id}','${g.poster}')" class="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#FDF6E3] text-[#8B4513] border border-[#F0DC9E] hover:bg-[#FBEEC8] transition">\u2605 Rate Host</button>` : ''}
+              </span>`
+           : (g.status==='OPEN'
+              ? `<button onclick="event.stopPropagation();acceptGig('${g.id}')" class="btn-primary text-xs px-3 py-1.5">Take Gig \u00b7 \u0932\u0947 \u0932\u0947\u0902</button>`
+              : `<span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${STATUS_STYLE[g.status]||'text-[#8B7355] border-[#D9CDB8]'}">${g.status.replace('_',' ')}</span>`));
       card.innerHTML = `
         <div class="flex items-start justify-between gap-2">
-          <span class="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded-md ${urgencyBg} ${urgencyColor} border">${g.urgency} · ${g.category}</span>
+          <span class="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded-md ${urgencyBg} ${urgencyColor} border"><i class="fa-solid ${CAT_ICONS[g.category]||'fa-briefcase'} mr-1"></i>${g.urgency} \u00b7 ${g.category}</span>
           <span class="text-sm font-extrabold text-[#D46A1A]">${fmt(g.reward)}</span>
         </div>
         <h4 class="font-extrabold text-base leading-tight text-[#1F1812]">${g.title}</h4>
-        <p class="text-xs text-[#5C554D] leading-relaxed">${g.instructions}</p>
-        <div class="flex items-center gap-2 text-[11px] text-[#8B7355]"><i class="fa-solid fa-location-dot text-[#FF9933]"></i> ${g.location}</div>
-        <div class="flex items-center gap-2 text-[11px] text-[#8B7355]"><i class="fa-regular fa-clock text-[#FF9933]"></i> ${new Date(g.created_at).toLocaleDateString('en-IN')}</div>
+        <p class="text-xs text-[#5C554D] leading-relaxed line-clamp-2">${g.instructions}</p>
+        <div class="flex items-center gap-3 text-[11px] text-[#8B7355]">
+          <span class="flex items-center gap-1"><i class="fa-solid fa-location-dot text-[#FF9933]"></i> ${g.location}</span>
+          <span class="flex items-center gap-1"><i class="fa-regular fa-clock text-[#FF9933]"></i> ${timeAgo(g.created_at)}</span>
+        </div>
         <div class="pt-2 border-t border-[#E8D9C3] flex items-center justify-between gap-2">
-          <div class="text-[11px] text-[#8B7355]">Host: <strong class="text-[#1F1812]">${g.poster}</strong></div>
-          ${isPoster ? `<span class="flex items-center gap-1.5"><span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#FF9933]/10 text-[#8B4500] border border-[#FFE0B2]">Your Gig</span>${g.status==='OPEN' ? `<button onclick="cancelGig('${g.id}')" class="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#FCEAE8] text-[#B83A3A] border border-[#F5C5C5] hover:bg-[#F8D7D5] transition">Cancel</button>` : ''}${g.status==='COMPLETED' && !ratedGigs.has(g.id) ? `<button onclick="openRateModal('${g.id}','${g.worker}')" class="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#FDF6E3] text-[#8B4513] border border-[#F0DC9E] hover:bg-[#FBEEC8] transition">★ Rate Worker</button>` : ''}</span>` : (isWorker ? `<span class="flex items-center gap-1.5"><span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#138808]/10 text-[#1B5E20] border border-[#C5E0C5]">Your Job</span>${g.status==='COMPLETED' && !ratedGigs.has(g.id) ? `<button onclick="openRateModal('${g.id}','${g.poster}')" class="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#FDF6E3] text-[#8B4513] border border-[#F0DC9E] hover:bg-[#FBEEC8] transition">★ Rate Host</button>` : ''}</span>` : (g.status==='OPEN' ? `<button onclick="acceptGig('${g.id}')" class="btn-primary text-xs px-3 py-1.5">Take Gig · ले लें</button>` : `<span class="text-xs font-extrabold ${g.status==='CANCELLED'?'text-[#B83A3A]':g.status==='COMPLETED'?'text-[#138808]':'text-[#8B7355]'}">${g.status}</span>`))}        </div>`;
+          <div class="text-[11px] text-[#8B7355] min-w-0 truncate">Host: <strong class="text-[#1F1812]">${g.poster_name||g.poster}</strong> <span class="text-[#D4A843] font-extrabold">\u2605${posterRating}</span></div>
+          ${footBtn}
+        </div>`;
       feed.appendChild(card);
     });
   }catch(e){console.error(e);}
@@ -586,7 +688,7 @@ async function acceptGig(id){
 
 // POST GIG
 function openPostModal(){ $('modal-backdrop').classList.remove('hidden'); $('modal-post').classList.remove('hidden'); $('modal-topup').classList.add('hidden'); $('modal-upi-pin').classList.add('hidden'); }
-function closeModals(){ $('modal-backdrop').classList.add('hidden'); $('modal-post').classList.add('hidden'); $('modal-topup').classList.add('hidden'); $('modal-upi-pin').classList.add('hidden'); const mr=$('modal-rate'); if(mr) mr.classList.add('hidden'); const me3=$('modal-edit'); if(me3) me3.classList.add('hidden'); }
+function closeModals(){ $('modal-backdrop').classList.add('hidden'); $('modal-post').classList.add('hidden'); $('modal-topup').classList.add('hidden'); $('modal-upi-pin').classList.add('hidden'); const mr=$('modal-rate'); if(mr) mr.classList.add('hidden'); const me3=$('modal-edit'); if(me3) me3.classList.add('hidden');  const mg=$('modal-gig'); if(mg) mg.classList.add('hidden'); const mc=$('modal-confirm'); if(mc) mc.classList.add('hidden'); }
 function setTopUp(n){ $('top-up-val').value = n; }
 function openTopUpModal(){ $('modal-backdrop').classList.remove('hidden'); $('modal-post').classList.add('hidden'); $('modal-topup').classList.remove('hidden'); $('modal-upi-pin').classList.add('hidden'); }
 function openUpiPayModal(){ $('modal-backdrop').classList.remove('hidden'); $('modal-post').classList.add('hidden'); $('modal-topup').classList.add('hidden'); $('modal-upi-pin').classList.remove('hidden'); $('upi-pay-amount').textContent = fmt(100); }
@@ -697,14 +799,77 @@ function setTab(t){
   if(t==='profile'){ loadUser(); }
 }
 
-async function cancelGig(id){
-  if(!confirm('Cancel this gig? Your escrow comes straight back.')) return;
+
+// --- Gig detail modal + completion flow ---
+function openGigDetail(id){
+  const g = gigCache[id]; if(!g) return;
+  $('gd-title').textContent = g.title;
+  $('gd-cat').innerHTML = `<i class="fa-solid ${CAT_ICONS[g.category]||'fa-briefcase'} mr-1"></i>${g.urgency} \u00b7 ${g.category}`;
+  $('gd-reward').textContent = fmt(g.reward);
+  $('gd-escrow-note').textContent = 'worker receives ' + fmt(g.reward*0.97);
+  $('gd-loc').textContent = g.location;
+  $('gd-time').textContent = timeAgo(g.created_at);
+  $('gd-status').textContent = g.status.replace('_',' ');
+  $('gd-status').className = 'text-[10px] font-extrabold px-2 py-0.5 rounded-full border ' + (STATUS_STYLE[g.status]||'text-[#8B7355] border-[#D9CDB8]');
+  $('gd-host').textContent = g.poster_name || g.poster;
+  $('gd-host-rating').textContent = '\u2605' + (g.poster_rating ?? 5.0).toFixed(1);
+  $('gd-avatar').textContent = (g.poster_name || g.poster || '?').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
+  $('gd-instructions').textContent = g.instructions;
+  const isPoster = g.poster===currentUser, isWorker = g.worker===currentUser;
+  const other = isPoster ? g.worker : g.poster;
+  const actions = [];
+  if(isPoster){
+    if(g.status==='OPEN')      actions.push(`<button onclick="closeModals();cancelGig('${g.id}')" class="btn-secondary text-sm text-[#B83A3A]"><i class="fa-solid fa-ban mr-1.5"></i> Cancel \u00b7 refund escrow</button>`);
+    if(g.status==='IN_PROGRESS') actions.push(`<button onclick="closeModals();askCompleteGig('${g.id}')" class="btn-green text-sm"><i class="fa-solid fa-circle-check mr-1.5"></i> Mark Complete \u00b7 release ${fmt(g.reward*0.97)}</button>`);
+    if(g.status==='COMPLETED' && !ratedGigs.has(g.id)) actions.push(`<button onclick="closeModals();openRateModal('${g.id}','${g.worker}')" class="btn-primary text-sm">\u2605 Rate Worker</button>`);
+  } else if(isWorker){
+    if(g.status==='IN_PROGRESS') actions.push(`<p class="text-[11px] text-[#8B7355] leading-relaxed">Finish the work, then ask the host to mark it complete \u2014 that releases ${fmt(g.reward*0.97)} to your wallet.</p>`);
+    if(g.status==='COMPLETED' && !ratedGigs.has(g.id)) actions.push(`<button onclick="closeModals();openRateModal('${g.id}','${g.poster}')" class="btn-primary text-sm">\u2605 Rate Host</button>`);
+  } else if(g.status==='OPEN'){
+    actions.push(`<button onclick="closeModals();acceptGig('${g.id}')" class="btn-primary text-sm">Take Gig \u00b7 \u0932\u0947 \u0932\u0947\u0902</button>`);
+  }
+  if((isPoster||isWorker) && other && g.status==='IN_PROGRESS') actions.push(`<button onclick="closeModals();currentDMWith='${other}';setTab('dms');loadDMMessages();" class="btn-secondary text-sm"><i class="fa-regular fa-comment-dots mr-1.5"></i> Open Chat</button>`);
+  $('gd-actions').innerHTML = actions.join('');
+  $('modal-gig').classList.remove('hidden');
+  $('modal-backdrop').classList.remove('hidden');
+}
+function askCompleteGig(id){
+  const g = gigCache[id];
+  showConfirm('Mark gig complete?',
+    'This pays the worker ' + (g ? fmt(g.reward*0.97) : '') + ' from your escrow and closes the gig. It cannot be undone.',
+    ()=>completeGig(id));
+}
+async function completeGig(id){
   try{
-    const r = await api('/api/gigs/'+id+'/cancel',{method:'POST',body:'{}'});
+    const r = await api('/api/gigs/'+id+'/complete',{method:'POST',body:'{}'});
     const data = await r.json();
-    if(data.ok){ showToast('Gig cancelled \u00b7 escrow refunded', 'success'); renderGigs(); loadUser(); loadActivity(); }
-    else showToast(data.error || (data.detail && data.detail.error) || 'Could not cancel','error');
-  }catch(e){showToast('Error cancelling gig','error');}
+    if(data.ok){
+      showToast('Payout released \u00b7 worker paid instantly', 'success');
+      renderGigs(); loadUser(); loadActivity();
+    } else {
+      showToast(data.error || (data.detail && data.detail.error) || 'Could not complete','error');
+    }
+  }catch(e){showToast('Server error','error');}
+}
+
+// --- in-app confirm dialog (replaces the browser confirm box) ---
+let confirmCb = null;
+function showConfirm(title, body, cb){
+  $('cf-title').textContent = title;
+  $('cf-body').textContent = body;
+  confirmCb = cb;
+  $('modal-confirm').classList.remove('hidden');
+  $('modal-backdrop').classList.remove('hidden');
+}
+async function cancelGig(id){
+  showConfirm('Cancel this gig?', 'Your escrow comes straight back to your wallet. This cannot be undone.', async ()=>{
+    try{
+      const r = await api('/api/gigs/'+id+'/cancel',{method:'POST',body:'{}'});
+      const data = await r.json();
+      if(data.ok){ showToast('Gig cancelled \u00b7 escrow refunded', 'success'); renderGigs(); loadUser(); loadActivity(); }
+      else showToast(data.error || (data.detail && data.detail.error) || 'Could not cancel','error');
+    }catch(e){showToast('Error cancelling gig','error');}
+  });
 }
 
 async function loadActivity(){
@@ -716,7 +881,7 @@ async function loadActivity(){
     if(!list) return;
     const txns = data.transactions || [];
     if(txns.length === 0){ list.innerHTML = '<p class="text-xs text-[#8B7355] py-4 text-center">No activity yet. Post or take a gig to see your money move.</p>'; return; }
-    const icons = {topup:'fa-circle-plus text-[#138808]', payout:'fa-sack-xmark text-[#138808]', escrow_hold:'fa-lock text-[#D4A843]', upi_pay:'fa-lock text-[#D4A843]', escrow_refund:'fa-arrow-rotate-left text-[#2563EB]'};
+    const icons = {topup:'fa-circle-plus text-[#138808]', escrow_settled:'fa-handshake text-[#1D4ED8]', payout:'fa-sack-xmark text-[#138808]', escrow_hold:'fa-lock text-[#D4A843]', upi_pay:'fa-lock text-[#D4A843]', escrow_refund:'fa-arrow-rotate-left text-[#2563EB]'};
     list.innerHTML = txns.map(t=>`
       <div class="flex items-center gap-3 py-2.5">
         <div class="w-8 h-8 rounded-xl bg-[#FDF8F0] border border-[#E8D9C3] flex items-center justify-center"><i class="fa-solid ${icons[t.type]||'fa-receipt text-[#8B7355]'} text-xs"></i></div>

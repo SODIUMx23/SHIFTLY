@@ -317,7 +317,10 @@ def post_gig(req: PostGigReq, poster: str = Depends(current_user)):
 @app.get("/api/gigs")
 def get_gigs():
     conn = get_db()
-    rows = conn.execute("SELECT * FROM gigs ORDER BY created_at DESC").fetchall()
+    rows = conn.execute(
+        "SELECT g.*, u.name AS poster_name, COALESCE(u.rating, 5.0) AS poster_rating "
+        "FROM gigs g LEFT JOIN users u ON u.username = g.poster "
+        "ORDER BY g.created_at DESC").fetchall()
     conn.close()
     return {"gigs": [dict(r) for r in rows]}
 
@@ -451,7 +454,11 @@ def complete_gig(gig_id: str, req: AcceptReq, caller: str = Depends(current_user
         conn.execute("UPDATE users SET balance = balance + ?, total_earned = total_earned + ? WHERE username=?",
                      (payout, payout, worker))
         conn.execute("INSERT INTO transactions (username,type,amount,note,time) VALUES (?,?,?, ?,?)",
-                     (worker, "payout", payout, f"EOD Settlement — Gig {gig_id}", datetime.now(timezone.utc).isoformat()))
+                     (worker, "payout", payout, f"Settlement — Gig {gig_id}", datetime.now(timezone.utc).isoformat()))
+        # poster's feed: show their escrow actually settled (money left via this gig)
+        conn.execute("INSERT INTO transactions (username,type,amount,note,time) VALUES (?,?,?,?,?)",
+                     (poster, "escrow_settled", 0, f"Escrow settled — paid ₹{payout:.2f} to {worker} for '{gig['title']}'",
+                      datetime.now(timezone.utc).isoformat()))
         # Auto message
         conn.execute("INSERT INTO messages (from_user,to_user,text,context,time) VALUES (?,?,?,?,?)",
                      ("system", poster, f"Gig '{gig['title']}' completed. Worker has been paid ₹{payout:.2f} (97%).", "", datetime.now(timezone.utc).isoformat()))

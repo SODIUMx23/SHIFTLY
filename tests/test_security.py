@@ -315,6 +315,15 @@ def test_otp_rate_limit(client, monkeypatch):
     assert client.post("/api/otp/send", json={"phone": "9000000061"}).json()["ok"]
 
 
+def test_gig_feed_includes_poster_identity(client):
+    auth, _ = register(client, "9000000070", name="Poster Person")
+    post_gig(client, auth, reward=100, title="Feed enriched check")
+    gigs = client.get("/api/gigs").json()["gigs"]   # public, no auth
+    mine = next(g for g in gigs if g["title"] == "Feed enriched check")
+    assert mine["poster_name"] == "Poster Person"
+    assert "poster_rating" in mine and mine["poster_rating"] >= 1.0
+
+
 # ----------------------------------------------------------------- public ----
 
 def test_public_endpoints_stay_public(client):
