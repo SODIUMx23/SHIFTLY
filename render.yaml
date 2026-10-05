@@ -20,6 +20,10 @@ services:
         sync: false
       - key: FIREBASE_APP_ID
         sync: false
+      - key: SESSION_SECRET
+        generateValue: true   # Render creates a random one at first deploy
+      - key: SESSION_HOURS
+        value: "24"
 
       # Optional. Comma-separated campus domains to restrict sign-in to,
       # e.g. "vitstudent.ac.in,vit.ac.in". Leave empty for any Google account.

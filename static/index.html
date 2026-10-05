@@ -338,6 +338,21 @@
 
 <script>
 let currentUser = null;
+let sessionToken = localStorage.getItem('cp_session') || null;
+
+// Every protected API call goes through here so the Bearer session token rides
+// along automatically. A 401 means the session died (server restart, expiry):
+// bounce back to the sign-in screen with an explanation.
+async function api(path, opts = {}){
+  opts.headers = Object.assign({'Content-Type':'application/json'}, opts.headers || {});
+  if(sessionToken) opts.headers['Authorization'] = 'Bearer ' + sessionToken;
+  const r = await fetch(path, opts);
+  if(r.status === 401 && currentUser){
+    logout();
+    showToast('Session expired — please sign in again','error');
+  }
+  return r;
+}
 let currentDMWith = null;
 let currentTab = 'marketplace';
 let pendingUsername = null;   // set once Google or mobile has been verified
@@ -395,6 +410,8 @@ async function verifyOtp(e){
     if(data.ok){
       // Mobile verified — collect the profile, then register.
       pendingUsername = phone.replace(/[^0-9]/g,'');
+      sessionToken = data.pending_token || null;   // short-lived: lets us register, nothing else
+      if(sessionToken) localStorage.setItem('cp_session', sessionToken);
       const banner = $('profile-banner');
       banner.innerHTML = '&#128241; Mobile <strong>+91 '+phone+'</strong> verified. Add your details to continue.';
       banner.classList.remove('hidden');
@@ -416,24 +433,26 @@ async function handleRegister(e){
     showToast('Verify with Google or your mobile number first','error');
     showEntryStep('choice'); return;
   }
-  const payload = {username, name:$('reg-name').value.trim(), role:$('reg-role').value, major:$('reg-major').value.trim(), dorm:$('reg-dorm').value.trim(), avatar_color:selectedAccent, upi_id:$('reg-upi').value.trim()};
+  const payload = {name:$('reg-name').value.trim(), role:$('reg-role').value, major:$('reg-major').value.trim(), dorm:$('reg-dorm').value.trim(), avatar_color:selectedAccent, upi_id:$('reg-upi').value.trim()};
   try{
-    const r = await fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const r = await api('/api/register',{method:'POST',body:JSON.stringify(payload)});
     const data = await r.json();
-    if(data.ok){
-      localStorage.setItem('cp_user', username);
-      currentUser = username;
+    if(data.ok && data.session){
+      sessionToken = data.session;
+      localStorage.setItem('cp_session', sessionToken);
+      localStorage.setItem('cp_user', data.username);
+      currentUser = data.username;
       pendingUsername = null;
       await enterApp();
       showToast('Welcome to Shiftly — '+data.user.name,'success');
-    } else { showToast('Registration failed','error'); }
+    } else { showToast(data.error || (data.detail && data.detail.error) || 'Registration failed','error'); }
   }catch(err){showToast('Server error: '+err.message,'error');}
 }
 
 async function loadUser(){
   if(!currentUser) return;
   try{
-    const r = await fetch('/api/me?username='+currentUser);
+    const r = await api('/api/me');
     const data = await r.json();
     if(data.username){
       $('header-balance').textContent = fmt(data.balance);
@@ -496,7 +515,7 @@ async function renderGigs(){
 
 async function acceptGig(id){
   try{
-    const r = await fetch('/api/gigs/'+id+'/accept',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:currentUser})});
+    const r = await api('/api/gigs/'+id+'/accept',{method:'POST',body:'{}'});
     const data = await r.json();
     if(data.ok){
       showToast('Gig accepted! DM opened with host. · काम स्वीकार !', 'success');
@@ -517,9 +536,9 @@ function openUpiPayModal(){ $('modal-backdrop').classList.remove('hidden'); $('m
 
 async function submitPost(e){
   e.preventDefault();
-  const payload = {username:currentUser, title:$('p-title').value, category:$('p-cat').value, reward:parseFloat($('p-rew').value), urgency:$('p-urg').value, location:$('p-loc').value, instructions:$('p-inst').value};
+  const payload = {title:$('p-title').value, category:$('p-cat').value, reward:parseFloat($('p-rew').value), urgency:$('p-urg').value, location:$('p-loc').value, instructions:$('p-inst').value};
   try{
-    const r = await fetch('/api/gigs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const r = await api('/api/gigs',{method:'POST',body:JSON.stringify(payload)});
     const data = await r.json();
     if(data.ok){ showToast('Gig posted! UPI escrow locked.', 'success'); closeModals(); renderGigs(); loadUser(); }
     else showToast('Failed to post','error');
@@ -528,7 +547,7 @@ async function submitPost(e){
 
 async function doTopUp(){
   try{
-    const r = await fetch('/api/wallet/topup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:currentUser, amount:parseFloat($('top-up-val').value)})});
+    const r = await api('/api/wallet/topup',{method:'POST',body:JSON.stringify({amount:parseFloat($('top-up-val').value)})});
     const data = await r.json();
     if(data.ok){ showToast('Top-up successful! UPI added.', 'success'); closeModals(); loadUser(); }
     else showToast('Failed','error');
@@ -540,7 +559,7 @@ async function verifyUpiPin(e){
   const pin = $('upi-pin-input').value;
   const amount = parseFloat($('top-up-val').value||100);
   try{
-    const r = await fetch('/api/wallet/upi_pay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:currentUser, amount:amount, pin:pin})});
+    const r = await api('/api/wallet/upi_pay',{method:'POST',body:JSON.stringify({amount:amount, pin:pin})});
     const data = await r.json();
     if(data.ok){ showToast('UPI PIN verified. Funds locked in escrow.', 'success'); closeModals(); loadUser(); }
     else showToast(data.error||'Verification failed','error');
@@ -550,7 +569,7 @@ async function verifyUpiPin(e){
 // MESSAGES
 async function loadDMList(){
   try{
-    const r = await fetch('/api/dm_list?me='+currentUser);
+    const r = await api('/api/dm_list');
     const data = await r.json();
     const list = $('dm-list');
     list.innerHTML = '';
@@ -567,7 +586,7 @@ async function loadDMList(){
 async function loadDMMessages(){
   if(!currentDMWith) return;
   try{
-    const r = await fetch('/api/dm?me='+currentUser+'&with_user='+currentDMWith);
+    const r = await api('/api/dm?with_user='+currentDMWith);
     const data = await r.json();
     const area = $('dm-messages');
     area.innerHTML = '';
@@ -593,7 +612,7 @@ function sendMessage(e){
   e.preventDefault();
   const txt = $('dm-input').value.trim();
   if(!txt||!currentDMWith) return;
-  fetch('/api/dm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from_user:currentUser, to_user:currentDMWith, text:txt})}).then(()=>{ $('dm-input').value=''; loadDMMessages(); loadDMList(); });
+  api('/api/dm',{method:'POST',body:JSON.stringify({to_user:currentDMWith, text:txt})}).then(()=>{ $('dm-input').value=''; loadDMMessages(); loadDMList(); });
 }
 
 function startNewDM(){
@@ -621,7 +640,9 @@ function simulateEOD(){
 
 window.addEventListener('load',async ()=>{
   const saved = localStorage.getItem('cp_user');
-  if(saved){
+  const sess  = localStorage.getItem('cp_session');
+  if(saved && sess){
+    sessionToken = sess;
     currentUser = saved;
     $('entry-screen').classList.add('hidden');
     $('app-shell').classList.remove('hidden');
@@ -695,7 +716,8 @@ window.signInWithGoogle = async function(){
     const data = await r.json();
     if(!data.ok){ showToast(data.error || 'Google sign-in was rejected by the server','error'); return; }
 
-    localStorage.setItem('cp_id_token', idToken);   // expires in 1h; used when we lock down the API
+    sessionToken = data.session;
+    localStorage.setItem('cp_session', data.session);   // our 24h session — API calls use this now
     localStorage.setItem('cp_user', data.username);
     pendingUsername = data.username;
     currentUser = data.username;
@@ -733,7 +755,8 @@ window.signOut = async function(){
     if(typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) await firebase.auth().signOut();
   }catch(e){}
   localStorage.removeItem('cp_user');
-  localStorage.removeItem('cp_id_token');
+  localStorage.removeItem('cp_session');
+  sessionToken = null;
   currentUser = null; pendingUsername = null;
   ['reg-name','reg-major','reg-dorm','reg-upi'].forEach(id=>{ const el=$(id); if(el) el.value=''; });
   const banner = $('profile-banner'); if(banner) banner.classList.add('hidden');

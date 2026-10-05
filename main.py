@@ -1,5 +1,6 @@
 import sqlite3, time, random, uuid, os, re
-from fastapi import FastAPI, Request
+import base64, hashlib, hmac, json, secrets
+from fastapi import FastAPI, Request, Header, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +11,28 @@ import uuid
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+def _load_dotenv(path=".env"):
+    """Minimal .env loader so config can live in one file. No extra dependency.
+    Real environment variables always win, so Render/CI settings are unaffected."""
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = val
+    except Exception as e:
+        print(f"[config] could not read {path}: {e}")
+
+_load_dotenv()
+
 
 DB = "shiftly.db"
 
@@ -52,7 +75,7 @@ def init_db():
 init_db()
 
 class RegisterReq(BaseModel):
-    username: str
+    username: Optional[str] = None   # ignored — identity comes from the session token
     name: str
     role: str
     major: str
@@ -61,7 +84,7 @@ class RegisterReq(BaseModel):
     upi_id: Optional[str] = ""
 
 class PostGigReq(BaseModel):
-    username: str
+    username: Optional[str] = None   # ignored — identity comes from the session token
     title: str
     category: str
     reward: float
@@ -70,20 +93,20 @@ class PostGigReq(BaseModel):
     instructions: str
 
 class MsgReq(BaseModel):
-    from_user: str
+    from_user: Optional[str] = None  # ignored — sender comes from the session token
     to_user: str
     text: str
     context: Optional[str] = ""
 
 class AcceptReq(BaseModel):
-    username: str
+    username: Optional[str] = None   # ignored — identity comes from the session token
 
 class TopUpReq(BaseModel):
-    username: str
+    username: Optional[str] = None   # ignored — identity comes from the session token
     amount: float
 
 class UpiPayReq(BaseModel):
-    username: str
+    username: Optional[str] = None   # ignored — identity comes from the session token
     amount: float
     pin: str  # mock verification
 
@@ -120,43 +143,138 @@ CONN.close()
 def msg_key(a,b):
     return "|".join(sorted([a,b]))
 
+# ---------------------------------------------------------------------------
+# Sessions — one token format for BOTH login paths
+# ---------------------------------------------------------------------------
+# Google users arrive with a Firebase ID token (expires in 1h, no refresh).
+# OTP users arrive with nothing at all. Rather than bolt two auth schemes onto
+# every endpoint, we verify the caller once at login and hand back our own
+# short-lived signed session token. Endpoints then only ever trust that.
+SESSION_SECRET = os.environ.get("SESSION_SECRET", "").strip()
+SESSION_HOURS  = int(os.environ.get("SESSION_HOURS", "24") or 24)
+if not SESSION_SECRET:
+    # Ephemeral fallback: sessions die on restart. Fine locally; on a real
+    # deployment set SESSION_SECRET so users are not logged out every deploy.
+    SESSION_SECRET = secrets.token_hex(32)
+    print("[session] SESSION_SECRET not set - generating an ephemeral one. "
+          "Sessions will not survive a restart.")
+
+def _b64(obj) -> str:
+    return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode()
+
+def _unb64(s: str):
+    return json.loads(base64.urlsafe_b64decode(s + "=" * (-len(s) % 4)))
+
+PENDING_SECONDS = 1800   # OTP-verified, profile-not-done tokens live 30 min
+
+def _sign(obj) -> str:
+    payload = _b64(obj)
+    sig = hmac.new(SESSION_SECRET.encode(), payload.encode(),
+                   hashlib.sha256).hexdigest()[:32]
+    return payload + "." + sig
+
+def create_session(username: str) -> str:
+    return _sign({"u": username, "exp": time.time() + SESSION_HOURS * 3600})
+
+def create_pending_session(phone: str) -> str:
+    """Issued after a correct OTP: proves ONLY that this phone was verified.
+    Good enough to POST /api/register exactly once the profile is filled."""
+    return _sign({"phone": phone, "pending": True,
+                  "exp": time.time() + PENDING_SECONDS})
+
+def read_session(token: str):
+    """Return the signed payload if the token is genuine and unexpired, else None."""
+    if not token or "." not in token:
+        return None
+    payload, _, sig = token.rpartition(".")
+    expected = hmac.new(SESSION_SECRET.encode(), payload.encode(),
+                        hashlib.sha256).hexdigest()[:32]
+    if not hmac.compare_digest(sig, expected):   # constant time
+        return None
+    try:
+        data = _unb64(payload)
+    except Exception:
+        return None
+    if not isinstance(data, dict) or data.get("exp", 0) < time.time():
+        return None
+    return data
+
+def session_payload(authorization: str = Header(default="")) -> dict:
+    """Dependency: any valid token (full OR pending OTP token)."""
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(401, {"ok": False, "error": "Sign-in required.",
+                                  "code": "no_session"})
+    payload = read_session(authorization[7:].strip())
+    if not payload:
+        raise HTTPException(401, {"ok": False,
+                                  "error": "Session expired or invalid. Sign in again.",
+                                  "code": "bad_session"})
+    return payload
+
+def current_user(authorization: str = Header(default="")) -> str:
+    """Dependency: a FULL session. Rejects OTP-pending tokens."""
+    payload = session_payload(authorization)
+    if payload.get("pending") or not payload.get("u"):
+        raise HTTPException(401, {"ok": False,
+                                  "error": "Finish creating your account first.",
+                                  "code": "registration_pending"})
+    return payload["u"]
+
+
 @app.post("/api/register")
-def register(req: RegisterReq):
+def register(req: RegisterReq, auth: dict = Depends(session_payload)):
+    """Create or complete a profile. The username is NEVER taken from the body:
+      - pending OTP token  -> username derived from the verified phone number
+      - full session       -> profile update for the session's own user
+    """
     conn = get_db()
+    if auth.get("pending"):
+        phone = auth.get("phone") or ""
+        username = re.sub(r"[^0-9]", "", phone) or _unique_username(conn, "user")
+    else:
+        username = auth["u"]
     conn.execute("INSERT OR IGNORE INTO users (username,name,role,major,dorm,avatar_color,balance,escrow,pending_payout,total_earned,rating,upi_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                 (req.username, req.name, req.role, req.major, req.dorm, req.avatar_color, 250, 0, 0, 0, 5.0, req.upi_id or "", datetime.now(timezone.utc).isoformat()))
+                 (username, req.name, req.role, req.major, req.dorm, req.avatar_color, 250, 0, 0, 0, 5.0, req.upi_id or "", datetime.now(timezone.utc).isoformat()))
     conn.execute("UPDATE users SET name=?, role=?, major=?, dorm=?, avatar_color=?, upi_id=? WHERE username=?",
-                 (req.name, req.role, req.major, req.dorm, req.avatar_color, req.upi_id or "", req.username))
+                 (req.name, req.role, req.major, req.dorm, req.avatar_color, req.upi_id or "", username))
     conn.commit()
-    row = conn.execute("SELECT * FROM users WHERE username=?", (req.username,)).fetchone()
+    row = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
     conn.close()
-    return {"ok": True, "user": dict(row) if row else {}}
+    # All done — upgrade the caller to a full session, whatever token they came in on.
+    return {"ok": True, "username": username, "user": dict(row) if row else {},
+            "session": create_session(username)}
 
 @app.get("/api/users")
-def list_users():
+def list_users(user: str = Depends(current_user)):
+    """Directory of public profiles. Balance/escrow/UPI/email/auth data never leave
+    the server from here — other users have no business seeing them."""
     conn = get_db()
-    rows = conn.execute("SELECT * FROM users").fetchall()
+    rows = conn.execute(
+        "SELECT username,name,role,major,dorm,avatar_color,rating,total_earned,created_at FROM users").fetchall()
     conn.close()
     return {"users": [dict(r) for r in rows]}
 
 @app.get("/api/me")
-def me(username: str):
+def me(username: str = Depends(current_user)):
     conn = get_db()
     row = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
     conn.close()
-    return dict(row) if row else {"error":"not found"}
+    if not row:
+        raise HTTPException(404, {"ok": False, "error": "Account not found. Please register again."})
+    user = dict(row); user["ok"] = True
+    return user
 
 @app.post("/api/gigs")
-def post_gig(req: PostGigReq):
+def post_gig(req: PostGigReq, poster: str = Depends(current_user)):
     gid = str(uuid.uuid4())[:8]
     conn = get_db()
     conn.execute("INSERT INTO gigs (id,title,category,reward,urgency,location,instructions,poster,worker,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                 (gid, req.title, req.category, req.reward, req.urgency, req.location, req.instructions, req.username, None, "OPEN", datetime.now(timezone.utc).isoformat()))
+                 (gid, req.title, req.category, req.reward, req.urgency, req.location, req.instructions, poster, None, "OPEN", datetime.now(timezone.utc).isoformat()))
     # Escrow hold from poster
     conn.execute("UPDATE users SET balance = MAX(0, balance - ?), escrow = escrow + ? WHERE username=?",
-                 (req.reward, req.reward, req.username))
+                 (req.reward, req.reward, poster))
     conn.execute("INSERT INTO transactions (username,type,amount,note,time) VALUES (?,?,?, ?,?)",
-                 (req.username, "escrow_hold", -req.reward, f"Gig: {req.title}", datetime.now(timezone.utc).isoformat()))
+                 (poster, "escrow_hold", -req.reward, f"Gig: {req.title}", datetime.now(timezone.utc).isoformat()))
     conn.commit()
     conn.close()
     return {"ok": True, "gig": {"id":gid,"title":req.title,"status":"OPEN"}}
@@ -176,14 +294,16 @@ def get_gig(gig_id: str):
     return {"gig": dict(row)} if row else {"error":"not found"}
 
 @app.post("/api/gigs/{gig_id}/accept")
-def accept_gig(gig_id: str, req: AcceptReq):
+def accept_gig(gig_id: str, req: AcceptReq, worker: str = Depends(current_user)):
     conn = get_db()
     gig = conn.execute("SELECT * FROM gigs WHERE id=?", (gig_id,)).fetchone()
     if not gig or gig["status"] != "OPEN":
         conn.close(); return {"error":"not available"}
-    conn.execute("UPDATE gigs SET status='IN_PROGRESS', worker=? WHERE id=?", (req.username, gig_id))
+    if gig["poster"] == worker:
+        conn.close()
+        raise HTTPException(403, {"ok": False, "error": "You can't accept your own gig."})
+    conn.execute("UPDATE gigs SET status='IN_PROGRESS', worker=? WHERE id=?", (worker, gig_id))
     poster = gig["poster"]
-    worker = req.username
     # Auto system message
     conn.execute("INSERT INTO messages (from_user,to_user,text,context,time) VALUES (?,?,?,?,?)",
                  ("system", poster, f"{worker} accepted your gig: '{gig['title']}'. Chat now to coordinate.", f"Gig: {gig['title']} | Reward: ₹{gig['reward']}", datetime.now(timezone.utc).isoformat()))
@@ -196,16 +316,16 @@ def accept_gig(gig_id: str, req: AcceptReq):
     return {"ok": True, "gig": dict(updated), "dm_key": msg_key(poster, worker)}
 
 @app.post("/api/dm")
-def send_dm(req: MsgReq):
+def send_dm(req: MsgReq, sender: str = Depends(current_user)):
     conn = get_db()
     conn.execute("INSERT INTO messages (from_user,to_user,text,context,time) VALUES (?,?,?,?,?)",
-                 (req.from_user, req.to_user, req.text, req.context or "", datetime.now(timezone.utc).isoformat()))
+                 (sender, req.to_user, req.text, req.context or "", datetime.now(timezone.utc).isoformat()))
     conn.commit()
     conn.close()
     return {"ok": True}
 
 @app.get("/api/dm")
-def get_dm(me: str, with_user: str):
+def get_dm(with_user: str, me: str = Depends(current_user)):
     conn = get_db()
     rows = conn.execute(
         "SELECT * FROM messages WHERE ((from_user=? AND to_user=?) OR (from_user=? AND to_user=?)) ORDER BY time ASC",
@@ -214,7 +334,7 @@ def get_dm(me: str, with_user: str):
     return {"messages": [dict(r) for r in rows]}
 
 @app.get("/api/dm_list")
-def dm_list(me: str):
+def dm_list(me: str = Depends(current_user)):
     conn = get_db()
     # Get unique partners for this user
     rows = conn.execute(
@@ -231,39 +351,43 @@ def dm_list(me: str):
     return {"conversations": result}
 
 @app.post("/api/wallet/topup")
-def topup(req: TopUpReq):
+def topup(req: TopUpReq, username: str = Depends(current_user)):
     conn = get_db()
-    conn.execute("UPDATE users SET balance = balance + ? WHERE username=?", (req.amount, req.username))
+    conn.execute("UPDATE users SET balance = balance + ? WHERE username=?", (req.amount, username))
     conn.execute("INSERT INTO transactions (username,type,amount,note,time) VALUES (?,?,?, ?,?)",
-                 (req.username, "topup", req.amount, "UPI / Wallet top-up", datetime.now(timezone.utc).isoformat()))
+                 (username, "topup", req.amount, "UPI / Wallet top-up", datetime.now(timezone.utc).isoformat()))
     conn.commit()
-    row = conn.execute("SELECT balance FROM users WHERE username=?", (req.username,)).fetchone()
+    row = conn.execute("SELECT balance FROM users WHERE username=?", (username,)).fetchone()
     conn.close()
     return {"ok": True, "balance": row["balance"] if row else 0}
 
 @app.post("/api/wallet/upi_pay")
-def upi_pay(req: UpiPayReq):
+def upi_pay(req: UpiPayReq, username: str = Depends(current_user)):
     # Mock UPI verification (4-digit PIN)
     if req.pin != "1234":
         return {"error":"Invalid UPI PIN. Try 1234 for demo."}
     conn = get_db()
     # Deduct from wallet / hold
     conn.execute("UPDATE users SET balance = MAX(0, balance - ?), escrow = escrow + ? WHERE username=?",
-                 (req.amount, req.amount, req.username))
+                 (req.amount, req.amount, username))
     conn.execute("INSERT INTO transactions (username,type,amount,note,time) VALUES (?,?,?, ?,?)",
-                 (req.username, "upi_pay", -req.amount, f"UPI Payment Lock — Demo PIN verified", datetime.now(timezone.utc).isoformat()))
+                 (username, "upi_pay", -req.amount, f"UPI Payment Lock — Demo PIN verified", datetime.now(timezone.utc).isoformat()))
     conn.commit()
     conn.close()
     return {"ok": True, "message":"UPI PIN verified. Funds locked in escrow."}
 
 @app.post("/api/gigs/{gig_id}/complete")
-def complete_gig(gig_id: str, req: AcceptReq):
+def complete_gig(gig_id: str, req: AcceptReq, caller: str = Depends(current_user)):
     conn = get_db()
     gig = conn.execute("SELECT * FROM gigs WHERE id=?", (gig_id,)).fetchone()
     if not gig: conn.close(); return {"error":"not found"}
-    conn.execute("UPDATE gigs SET status='COMPLETED' WHERE id=?", (gig_id,))
     poster = gig["poster"]
-    worker = gig["worker"] or req.username
+    if caller != poster:
+        conn.close()
+        raise HTTPException(403, {"ok": False,
+                                  "error": "Only the gig's poster can mark it complete and release the payment."})
+    conn.execute("UPDATE gigs SET status='COMPLETED' WHERE id=?", (gig_id,))
+    worker = gig["worker"]
     if poster and worker:
         payout = float(gig["reward"]) * 0.97
         conn.execute("UPDATE users SET escrow = MAX(0, escrow - ?), pending_payout = MAX(0, pending_payout - ?) WHERE username=?",
@@ -313,28 +437,11 @@ def otp_verify(req: OtpVerifyReq):
         return {"ok": False, "error": "OTP expired or not sent. Request again."}
     if entry["code"] != req.otp:
         return {"ok": False, "error": "Incorrect OTP. Try again."}
-    # Verify success — allow registration
-    return {"ok": True, "phone": phone, "message": "Verified. Proceed to profile."}
-def _load_dotenv(path=".env"):
-    """Minimal .env loader so config can live in one file. No extra dependency.
-    Real environment variables always win, so Render/CI settings are unaffected."""
-    if not os.path.exists(path):
-        return
-    try:
-        with open(path, encoding="utf-8") as fh:
-            for raw in fh:
-                line = raw.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, _, val = line.partition("=")
-                key = key.strip()
-                val = val.strip().strip('"').strip("'")
-                if key and key not in os.environ:
-                    os.environ[key] = val
-    except Exception as e:
-        print(f"[config] could not read {path}: {e}")
-
-_load_dotenv()
+    del otp_store[phone]   # one-shot: an accepted code can never be replayed
+    # Verify success — the caller gets a short-lived token proving the phone is
+    # verified; /api/register exchanges it for a full account session.
+    return {"ok": True, "phone": phone, "message": "Verified. Proceed to profile.",
+            "pending_token": create_pending_session(phone)}
 
 # ---------------------------------------------------------------------------
 # Google Sign-In (Firebase Authentication) — free tier, no service account
@@ -436,6 +543,10 @@ def verify_firebase_id_token(token: str) -> dict:
         raise AuthError("bad_token", "Token is missing a subject (sub) claim.", 401)
     return claims
 
+@app.get("/api/health")
+def health():
+    return {"ok": True}
+
 @app.get("/api/auth/config")
 def auth_config():
     """Public web config for the browser. Firebase web config is not a secret."""
@@ -505,7 +616,7 @@ def auth_google(req: GoogleAuthReq):
     user = dict(updated)
     return {
         "ok": True, "user": user, "is_new": is_new, "email": email,
-        "username": username,
+        "username": username, "session": create_session(username),
         "profile_complete": bool((user.get("major") or "").strip() and (user.get("dorm") or "").strip()),
     }
 
