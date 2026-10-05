@@ -3,7 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Shiftly — Indian Campus Gig & UPI Wallet</title>
+<link rel="icon" type="image/png" href="assets/img/logo.png">
+<meta name="theme-color" content="#138808">
+  <title>Shiftly — Indian Campus Gig & UPI Wallet</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;800;900&family=Noto+Sans+Devanagari:wght@500;700;900&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
@@ -64,8 +66,9 @@
   <div class="max-w-md w-full bg-white/90 backdrop-blur-xl rounded-[2rem] shadow-2xl p-8 md:p-10 border border-[#E8D9C3] anim-in relative overflow-hidden">
     <div class="absolute top-0 left-0 right-0 h-1.5 gradient-saffron"></div>
     <div class="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-gradient-to-br from-[#FF9933]/15 to-[#138808]/15 blur-2xl"></div>
+    <div class="relative h-36 md:h-44 rounded-2xl overflow-hidden shadow-md border border-[#E8D9C3] mb-5"><img src="assets/img/hero.jpg" alt="Campus gig marketplace" class="w-full h-full object-cover" onerror="this.parentElement.style.display='none'"></div>
     <div class="text-center mb-6">
-      <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl gradient-green text-white text-2xl shadow-xl mb-4 shadow-green-700/20"><i class="fa-solid fa-utensils"></i></div>
+      <img src="assets/img/logo.png" alt="Shiftly" class="inline-block w-16 h-16 rounded-2xl shadow-xl mb-4 shadow-green-700/20" onerror="this.outerHTML='<div class=\'inline-flex items-center justify-center w-16 h-16 rounded-2xl gradient-green text-white text-2xl shadow-xl mb-4\'><i class=\'fa-solid fa-utensils\'></i></div>'">
       <h1 class="font-editorial text-4xl md:text-5xl text-[#1F1812] mb-1">Shiftly</h1>
       <p class="text-[#8B5A2B] font-medium text-sm">Indian Campus Gig Marketplace · UPI Wallet</p>
       <div class="flex justify-center gap-2 mt-3"><span class="w-10 h-0.5 bg-[#FF9933] rounded-full"></span><span class="w-10 h-0.5 bg-[#138808] rounded-full"></span><span class="w-10 h-0.5 bg-[#D4A843] rounded-full"></span></div>
@@ -148,7 +151,7 @@
   <header class="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-[#E8D9C3] px-4 lg:px-8 py-3 shadow-[0_1px_0_rgba(139,90,43,0.08)]">
     <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
       <a href="#" onclick="setTab('marketplace');return false;" class="flex items-center gap-3 group">
-        <div class="w-10 h-10 rounded-xl gradient-green text-white flex items-center justify-center text-lg shadow-lg shadow-green-700/20"><i class="fa-solid fa-utensils"></i></div>
+        <img src="assets/img/logo.png" alt="Shiftly logo" class="w-10 h-10 rounded-xl shadow-lg shadow-green-700/20" onerror="this.outerHTML='<div class=\'w-10 h-10 rounded-xl gradient-green text-white flex items-center justify-center text-lg shadow-lg\'><i class=\'fa-solid fa-utensils\'></i></div>'">
         <div>
           <h2 class="text-xl font-extrabold leading-none tracking-tight text-[#1F1812]">Shiftly</h2>
           <p class="text-[10px] text-[#8B7355] font-medium leading-none mt-0.5">Gig Bazaar · UPI Wallet</p>
@@ -370,6 +373,7 @@
       <span id="gd-cat" class="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded-md bg-[#FDF6E3] text-[#8B4513] border border-[#F0DC9E]"></span>
       <button onclick="closeModals()" class="text-[#8B7355] hover:text-[#1F1812] text-xl leading-none">&times;</button>
     </div>
+    <div id="gd-img-wrap" class="h-36 rounded-2xl overflow-hidden mb-3 shadow-sm"><img id="gd-img" alt="" class="w-full h-full object-cover" onerror="this.parentElement.style.display='none'"></div>
     <h3 id="gd-title" class="font-extrabold text-xl text-[#1F1812] leading-tight"></h3>
     <div class="flex items-center gap-3 mt-2 text-[11px] text-[#8B7355] flex-wrap">
       <span class="flex items-center gap-1"><i class="fa-solid fa-location-dot text-[#FF9933]"></i> <span id="gd-loc"></span></span>
@@ -578,6 +582,7 @@ async function loadUser(){
 // GIGS
 // --- premium feed helpers ---
 const CAT_ICONS = {'Food Run':'fa-bowl-food','Tutoring':'fa-book-open','Heavy Lifting':'fa-boxes-stacked','Academic':'fa-graduation-cap','Tech Support':'fa-laptop-code'};
+const CAT_IMG = {'Food Run':'cat-food.jpg','Tutoring':'cat-tutors.jpg','Heavy Lifting':'cat-lifting.jpg','Academic':'cat-academic.jpg','Tech Support':'cat-tech.jpg'};
 const STATUS_STYLE = {'OPEN':'bg-[#E8F5E9] text-[#1B5E20] border-[#C5E0C5]','IN_PROGRESS':'bg-[#FDF6E3] text-[#8B4513] border-[#F0DC9E]','COMPLETED':'bg-[#E8F0FE] text-[#1D4ED8] border-[#BFD3FA]','CANCELLED':'bg-[#FCEAE8] text-[#B83A3A] border-[#F5C5C5]'};
 let gigCache = {};
 let feedView = 'All';
@@ -653,6 +658,7 @@ async function renderGigs(){
               ? `<button onclick="event.stopPropagation();acceptGig('${g.id}')" class="btn-primary text-xs px-3 py-1.5">Take Gig \u00b7 \u0932\u0947 \u0932\u0947\u0902</button>`
               : `<span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${STATUS_STYLE[g.status]||'text-[#8B7355] border-[#D9CDB8]'}">${g.status.replace('_',' ')}</span>`));
       card.innerHTML = `
+        <div class="h-28 -mx-5 -mt-5 rounded-t-3xl overflow-hidden mb-3"><img src="assets/img/${CAT_IMG[g.category]||'cat-academic.jpg'}" alt="" loading="lazy" class="w-full h-full object-cover" onerror="this.parentElement.style.display='none'"></div>
         <div class="flex items-start justify-between gap-2">
           <span class="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded-md ${urgencyBg} ${urgencyColor} border"><i class="fa-solid ${CAT_ICONS[g.category]||'fa-briefcase'} mr-1"></i>${g.urgency} \u00b7 ${g.category}</span>
           <span class="text-sm font-extrabold text-[#D46A1A]">${fmt(g.reward)}</span>
@@ -803,6 +809,8 @@ function setTab(t){
 // --- Gig detail modal + completion flow ---
 function openGigDetail(id){
   const g = gigCache[id]; if(!g) return;
+  const giw = $('gd-img-wrap'); if(giw) giw.style.display='';
+  $('gd-img').src = 'assets/img/' + (CAT_IMG[g.category] || 'cat-academic.jpg');
   $('gd-title').textContent = g.title;
   $('gd-cat').innerHTML = `<i class="fa-solid ${CAT_ICONS[g.category]||'fa-briefcase'} mr-1"></i>${g.urgency} \u00b7 ${g.category}`;
   $('gd-reward').textContent = fmt(g.reward);
