@@ -21,5 +21,17 @@ python main.py
 - End-of-Day settlement simulation
 - Multi-device real-time sync
 
+## Tests
+
+```
+pip install -r requirements-dev.txt
+pytest tests/ -q
+```
+
+Replays every attack the app has ever survived — forged sessions, tampered
+tokens, cross-user money moves, negative/huge rewards, insolvent escrow — and
+the honest post → accept → complete → 97%-payout flow they must not break.
+11 tests covering auth, identity, economy, cancel/refund and ratings.
+
 ## Deploy (Render — free tier)
 Connect GitHub repo to Render → Build `pip install -r requirements.txt` → Start `python main.py`

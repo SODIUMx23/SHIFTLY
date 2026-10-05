@@ -258,6 +258,11 @@
           <strong class="text-[#8B4500]">Fee Model:</strong> 3% platform host cut on every gig. Workers receive <strong>97%</strong> of the bounty. Daily EOD settlement at 11:59 PM. <strong>UPI ID</strong> required for wallet top-up.
         </div>
       </div>
+      <div class="bg-white rounded-3xl p-6 shadow-sm border border-[#E8D9C3]">
+        <h3 class="font-extrabold mb-1 text-[#1F1812]">Recent Activity · हाल की गतिविधि</h3>
+        <p class="text-[11px] text-[#8B7355] mb-3">Every rupee in or out of your wallet, in order.</p>
+        <div id="activity-list" class="divide-y divide-[#F0E8DA]"></div>
+      </div>
     </section>
 
     <!-- PROFILE -->
@@ -322,6 +327,15 @@
     <button onclick="doTopUp()" class="w-full btn-green">Deposit via UPI</button>
   </div>
   <!-- UPI PIN Modal -->
+  <div id="modal-rate" class="bg-white/95 backdrop-blur-xl max-w-sm w-full rounded-3xl p-6 shadow-2xl relative hidden border border-[#E8D9C3] animate-[fadeUp_0.3s_ease]">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="font-extrabold text-[#1F1812]">Rate <span id="rate-user" class="text-[#D46A1A]"></span></h3>
+      <button onclick="closeModals()" class="text-[#8B7355] hover:text-[#1F1812] text-xl leading-none">&times;</button>
+    </div>
+    <div id="rate-stars" class="flex gap-1.5 justify-center my-3"></div>
+    <textarea id="rate-review" rows="2" maxlength="300" placeholder="Optional review (max 300 chars)" class="w-full bg-[#FDF8F0] border border-[#D9CDB8] rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-[#FF9933] resize-none"></textarea>
+    <button onclick="submitRating()" class="btn-primary w-full mt-3"><i class="fa-solid fa-star mr-1.5"></i> Submit Rating</button>
+  </div>
   <div id="modal-upi-pin" class="bg-white/95 backdrop-blur-xl max-w-md w-full rounded-3xl p-6 shadow-2xl relative hidden border border-[#E8D9C3] animate-[fadeUp_0.3s_ease]">
     <div class="flex items-center justify-between border-b border-[#E8D9C3] pb-3 mb-4"><h3 class="font-extrabold text-lg text-[#1F1812]"><i class="fa-solid fa-mobile-screen-button text-[#FF9933] mr-2"></i>UPI PIN Verification</h3><button onclick="closeModals()" class="text-[#8B7355]"><i class="fa-solid fa-xmark"></i></button></div>
     <p class="text-xs text-[#5C554D] mb-3">Enter your 4-digit UPI PIN to lock funds in escrow. <strong>Demo PIN: 1234</strong></p>
@@ -339,6 +353,7 @@
 <script>
 let currentUser = null;
 let sessionToken = localStorage.getItem('cp_session') || null;
+let ratedGigs = new Set();   // gigs I have already rated (drives the star buttons)
 
 // Every protected API call goes through here so the Bearer session token rides
 // along automatically. A 401 means the session died (server restart, expiry):
@@ -449,6 +464,14 @@ async function handleRegister(e){
   }catch(err){showToast('Server error: '+err.message,'error');}
 }
 
+async function refreshRatedGigs(){
+  try{
+    const r = await api('/api/my_ratings');
+    const data = await r.json();
+    if(data.ok) ratedGigs = new Set(data.rated_gig_ids || []);
+  }catch(e){}
+}
+
 async function loadUser(){
   if(!currentUser) return;
   try{
@@ -479,6 +502,7 @@ async function loadUser(){
 
 // GIGS
 async function renderGigs(){
+  refreshRatedGigs();
   try{
     const r = await fetch('/api/gigs');
     const data = await r.json();
@@ -486,7 +510,7 @@ async function renderGigs(){
     feed.innerHTML = '';
     const cat = $('filter-cat').value;
     const q = $('search-gigs').value.toLowerCase();
-    const list = (data.gigs||[]).filter(g=>(cat==='All'||g.category===cat)&&(!q||g.title.toLowerCase().includes(q)));
+    const list = (data.gigs||[]).filter(g=>g.status!=='CANCELLED'&&(cat==='All'||g.category===cat)&&(!q||g.title.toLowerCase().includes(q)));
     if(list.length===0){feed.innerHTML='<div class="col-span-full text-center text-[#8B7355] py-10 text-sm">No gigs found. Post one on the Bazaar!</div>';return;}
     list.forEach(g=>{
       const isPoster = g.poster===currentUser;
@@ -506,8 +530,7 @@ async function renderGigs(){
         <div class="flex items-center gap-2 text-[11px] text-[#8B7355]"><i class="fa-regular fa-clock text-[#FF9933]"></i> ${new Date(g.created_at).toLocaleDateString('en-IN')}</div>
         <div class="pt-2 border-t border-[#E8D9C3] flex items-center justify-between gap-2">
           <div class="text-[11px] text-[#8B7355]">Host: <strong class="text-[#1F1812]">${g.poster}</strong></div>
-          ${isPoster ? '<span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#FF9933]/10 text-[#8B4500] border border-[#FFE0B2]">Your Gig</span>' : (isWorker ? '<span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#138808]/10 text-[#1B5E20] border border-[#C5E0C5]">Your Job</span>' : (g.status==='OPEN' ? `<button onclick="acceptGig('${g.id}')" class="btn-primary text-xs px-3 py-1.5">Take Gig · ले लें</button>` : `<span class="text-xs font-extrabold text-[#8B7355]">${g.status}</span>`))}
-        </div>`;
+          ${isPoster ? `<span class="flex items-center gap-1.5"><span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#FF9933]/10 text-[#8B4500] border border-[#FFE0B2]">Your Gig</span>${g.status==='OPEN' ? `<button onclick="cancelGig('${g.id}')" class="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#FCEAE8] text-[#B83A3A] border border-[#F5C5C5] hover:bg-[#F8D7D5] transition">Cancel</button>` : ''}${g.status==='COMPLETED' && !ratedGigs.has(g.id) ? `<button onclick="openRateModal('${g.id}','${g.worker}')" class="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#FDF6E3] text-[#8B4513] border border-[#F0DC9E] hover:bg-[#FBEEC8] transition">★ Rate Worker</button>` : ''}</span>` : (isWorker ? `<span class="flex items-center gap-1.5"><span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#138808]/10 text-[#1B5E20] border border-[#C5E0C5]">Your Job</span>${g.status==='COMPLETED' && !ratedGigs.has(g.id) ? `<button onclick="openRateModal('${g.id}','${g.poster}')" class="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#FDF6E3] text-[#8B4513] border border-[#F0DC9E] hover:bg-[#FBEEC8] transition">★ Rate Host</button>` : ''}</span>` : (g.status==='OPEN' ? `<button onclick="acceptGig('${g.id}')" class="btn-primary text-xs px-3 py-1.5">Take Gig · ले लें</button>` : `<span class="text-xs font-extrabold ${g.status==='CANCELLED'?'text-[#B83A3A]':g.status==='COMPLETED'?'text-[#138808]':'text-[#8B7355]'}">${g.status}</span>`))}        </div>`;
       feed.appendChild(card);
     });
   }catch(e){console.error(e);}
@@ -529,7 +552,7 @@ async function acceptGig(id){
 
 // POST GIG
 function openPostModal(){ $('modal-backdrop').classList.remove('hidden'); $('modal-post').classList.remove('hidden'); $('modal-topup').classList.add('hidden'); $('modal-upi-pin').classList.add('hidden'); }
-function closeModals(){ $('modal-backdrop').classList.add('hidden'); $('modal-post').classList.add('hidden'); $('modal-topup').classList.add('hidden'); $('modal-upi-pin').classList.add('hidden'); }
+function closeModals(){ $('modal-backdrop').classList.add('hidden'); $('modal-post').classList.add('hidden'); $('modal-topup').classList.add('hidden'); $('modal-upi-pin').classList.add('hidden');  const mr=$('modal-rate'); if(mr) mr.classList.add('hidden'); }
 function setTopUp(n){ $('top-up-val').value = n; }
 function openTopUpModal(){ $('modal-backdrop').classList.remove('hidden'); $('modal-post').classList.add('hidden'); $('modal-topup').classList.remove('hidden'); $('modal-upi-pin').classList.add('hidden'); }
 function openUpiPayModal(){ $('modal-backdrop').classList.remove('hidden'); $('modal-post').classList.add('hidden'); $('modal-topup').classList.add('hidden'); $('modal-upi-pin').classList.remove('hidden'); $('upi-pay-amount').textContent = fmt(100); }
@@ -630,8 +653,81 @@ function setTab(t){
   if(btn){ btn.classList.add('bg-[#FFF4E6]','text-[#8B4500]'); btn.classList.remove('text-[#5C554D]'); }
   if(t==='marketplace'){ renderGigs(); }
   if(t==='dms'){ loadDMList(); if(currentDMWith) loadDMMessages(); }
-  if(t==='wallet'){ loadUser(); }
+  if(t==='wallet'){ loadUser(); loadActivity(); }
   if(t==='profile'){ loadUser(); }
+}
+
+async function cancelGig(id){
+  if(!confirm('Cancel this gig? Your escrow comes straight back.')) return;
+  try{
+    const r = await api('/api/gigs/'+id+'/cancel',{method:'POST',body:'{}'});
+    const data = await r.json();
+    if(data.ok){ showToast('Gig cancelled \u00b7 escrow refunded', 'success'); renderGigs(); loadUser(); loadActivity(); }
+    else showToast(data.error || (data.detail && data.detail.error) || 'Could not cancel','error');
+  }catch(e){showToast('Error cancelling gig','error');}
+}
+
+async function loadActivity(){
+  if(!currentUser) return;
+  try{
+    const r = await api('/api/transactions');
+    const data = await r.json();
+    const list = $('activity-list');
+    if(!list) return;
+    const txns = data.transactions || [];
+    if(txns.length === 0){ list.innerHTML = '<p class="text-xs text-[#8B7355] py-4 text-center">No activity yet. Post or take a gig to see your money move.</p>'; return; }
+    const icons = {topup:'fa-circle-plus text-[#138808]', payout:'fa-sack-xmark text-[#138808]', escrow_hold:'fa-lock text-[#D4A843]', upi_pay:'fa-lock text-[#D4A843]', escrow_refund:'fa-arrow-rotate-left text-[#2563EB]'};
+    list.innerHTML = txns.map(t=>`
+      <div class="flex items-center gap-3 py-2.5">
+        <div class="w-8 h-8 rounded-xl bg-[#FDF8F0] border border-[#E8D9C3] flex items-center justify-center"><i class="fa-solid ${icons[t.type]||'fa-receipt text-[#8B7355]'} text-xs"></i></div>
+        <div class="flex-1 min-w-0">
+          <p class="text-xs font-extrabold text-[#1F1812] truncate">${t.note || t.type}</p>
+          <p class="text-[10px] text-[#8B7355]">${new Date(t.time).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</p>
+        </div>
+        <span class="text-xs font-extrabold ${t.amount >= 0 ? 'text-[#138808]' : 'text-[#B83A3A]'}">${t.amount >= 0 ? '+' : ''}${fmt(t.amount)}</span>
+      </div>`).join('');
+  }catch(e){}
+}
+
+// --- Rating modal ---
+let ratingGigId = null, ratingStars = 0;
+function openRateModal(gigId, otherUser){
+  ratingGigId = gigId; ratingStars = 0;
+  $('rate-user').textContent = otherUser;
+  $('rate-review').value = '';
+  paintStars(0);
+  $('modal-rate').classList.remove('hidden');
+  $('modal-backdrop').classList.remove('hidden');
+}
+function paintStars(n){
+  const row = $('rate-stars');
+  row.innerHTML = '';
+  for(let i=1;i<=5;i++){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'text-2xl transition hover:scale-125';
+    b.textContent = i <= n ? '\u2605' : '\u2606';
+    b.style.color = i <= n ? '#D4A843' : '#8B7355';
+    b.onclick = ()=>{ ratingStars = i; paintStars(i); };
+    row.appendChild(b);
+  }
+}
+async function submitRating(){
+  if(!ratingStars){ showToast('Pick 1\u20135 stars first','error'); return; }
+  try{
+    const r = await api('/api/gigs/'+ratingGigId+'/rate',{method:'POST',body:JSON.stringify({stars:ratingStars, review:$('rate-review').value.trim()})});
+    const data = await r.json();
+    if(data.ok){
+      ratedGigs.add(ratingGigId);
+      closeModals();
+      showToast('Rated '+ratingStars+'\u2605 \u00b7 thanks for the feedback!','success');
+      renderGigs(); loadUser();
+    } else {
+      const err = data.error || (data.detail && data.detail.error) || 'Could not rate';
+      if(err.toLowerCase().includes('already')){ ratedGigs.add(ratingGigId); closeModals(); renderGigs(); }
+      showToast(err,'error');
+    }
+  }catch(e){showToast('Server error','error');}
 }
 
 function simulateEOD(){

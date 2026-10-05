@@ -69,6 +69,12 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT, type TEXT, amount REAL, note TEXT, time TEXT
     )""")
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS ratings (
+        gig_id TEXT, rater TEXT, ratee TEXT,
+        stars INTEGER, review TEXT, time TEXT,
+        PRIMARY KEY (gig_id, rater, ratee)
+    )""")
     conn.commit()
     conn.close()
 
@@ -109,6 +115,10 @@ class UpiPayReq(BaseModel):
     username: Optional[str] = None   # ignored — identity comes from the session token
     amount: float
     pin: str  # mock verification
+
+class RateReq(BaseModel):
+    stars: int
+    review: Optional[str] = ""
 
 # Seed Indian demo users
 CONN = get_db()
@@ -432,6 +442,99 @@ def complete_gig(gig_id: str, req: AcceptReq, caller: str = Depends(current_user
     updated = conn.execute("SELECT * FROM gigs WHERE id=?", (gig_id,)).fetchone()
     conn.close()
     return {"ok": True, "gig": dict(updated)}
+
+# --- Transaction history ----------------------------------------------------
+# The table has always recorded every money movement; users just couldn't see
+# it. Now they can — but only their OWN rows.
+@app.get("/api/transactions")
+def my_transactions(username: str = Depends(current_user)):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT type, amount, note, time FROM transactions WHERE username=? "
+        "ORDER BY time DESC, id DESC LIMIT 50", (username,)).fetchall()
+    conn.close()
+    return {"ok": True, "transactions": [dict(r) for r in rows]}
+
+# --- Gig cancellation -------------------------------------------------------
+# Posting locks escrow instantly. Without this endpoint, a gig nobody accepts
+# traps the poster's money forever. OPEN gigs can always be cancelled: the
+# escrow goes straight back. Once a worker has accepted, cancelling needs a
+# dispute flow (roadmap level 4) — so it's a clean 409 here, not silent damage.
+@app.post("/api/gigs/{gig_id}/cancel")
+def cancel_gig(gig_id: str, poster: str = Depends(current_user)):
+    conn = get_db()
+    gig = conn.execute("SELECT * FROM gigs WHERE id=?", (gig_id,)).fetchone()
+    if not gig:
+        conn.close(); return JSONResponse(status_code=404, content={"ok": False, "error": "Gig not found."})
+    if gig["poster"] != poster:
+        conn.close()
+        raise HTTPException(403, {"ok": False, "error": "Only the gig's poster can cancel it."})
+    if gig["status"] != "OPEN":
+        conn.close()
+        raise HTTPException(409, {"ok": False,
+            "error": "A worker has already accepted this gig — cancelling mid-work needs a dispute flow (coming later)."})
+    reward = float(gig["reward"])
+    cur = conn.execute(
+        "UPDATE users SET balance = balance + ?, escrow = escrow - ? "
+        "WHERE username=? AND escrow >= ?", (reward, reward, poster, reward))
+    if cur.rowcount != 1:
+        conn.close()
+        raise HTTPException(409, {"ok": False, "error": "Escrow mismatch — contact support."})
+    conn.execute("UPDATE gigs SET status='CANCELLED' WHERE id=? AND status='OPEN'", (gig_id,))
+    conn.execute("INSERT INTO transactions (username,type,amount,note,time) VALUES (?,?,?,?,?)",
+                 (poster, "escrow_refund", reward, f"Gig '{gig['title']}' cancelled — escrow returned",
+                  datetime.now(timezone.utc).isoformat()))
+    conn.commit()
+    updated = conn.execute("SELECT * FROM gigs WHERE id=?", (gig_id,)).fetchone()
+    conn.close()
+    return {"ok": True, "gig": dict(updated)}
+
+# --- Ratings ----------------------------------------------------------------
+# The rating column existed but nothing could ever change it — everyone was
+# 5.0 forever. Now each completed gig lets BOTH participants rate each other,
+# once. The running average lives on the users row.
+@app.post("/api/gigs/{gig_id}/rate")
+def rate_gig(gig_id: str, req: RateReq, rater: str = Depends(current_user)):
+    if not (1 <= req.stars <= 5):
+        raise HTTPException(400, {"ok": False, "error": "Rating must be 1–5 stars."})
+    conn = get_db()
+    gig = conn.execute("SELECT * FROM gigs WHERE id=?", (gig_id,)).fetchone()
+    if not gig:
+        conn.close(); return JSONResponse(status_code=404, content={"ok": False, "error": "Gig not found."})
+    if gig["status"] != "COMPLETED":
+        conn.close()
+        raise HTTPException(409, {"ok": False, "error": "You can rate a gig after it is completed."})
+    poster, worker = gig["poster"], gig["worker"]
+    if rater == poster:
+        ratee = worker
+    elif rater == worker:
+        ratee = poster
+    else:
+        conn.close()
+        raise HTTPException(403, {"ok": False, "error": "Only the two people on this gig can rate it."})
+    if not ratee:
+        conn.close()
+        raise HTTPException(409, {"ok": False, "error": "This gig had no counterpart to rate."})
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO ratings (gig_id,rater,ratee,stars,review,time) VALUES (?,?,?,?,?,?)",
+        (gig_id, rater, ratee, req.stars, (req.review or "")[:300], datetime.now(timezone.utc).isoformat()))
+    if cur.rowcount != 1:
+        conn.close()
+        raise HTTPException(409, {"ok": False, "error": "You have already rated this gig."})
+    avg = conn.execute("SELECT ROUND(AVG(stars),1) FROM ratings WHERE ratee=?",
+                       (ratee,)).fetchone()[0]
+    conn.execute("UPDATE users SET rating=? WHERE username=?", (avg, ratee))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "ratee": ratee, "new_rating": avg}
+
+@app.get("/api/my_ratings")
+def my_ratings(username: str = Depends(current_user)):
+    """Gigs I have already rated — lets the UI hide the Rate button."""
+    conn = get_db()
+    rows = conn.execute("SELECT gig_id FROM ratings WHERE rater=?", (username,)).fetchall()
+    conn.close()
+    return {"ok": True, "rated_gig_ids": [r["gig_id"] for r in rows]}
 
 # --- OTP Mock System (replace with Twilio/Msg91 for real SMS) ---
 import random, time
