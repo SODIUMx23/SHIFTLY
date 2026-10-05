@@ -282,6 +282,39 @@ def test_profile_edit_updates_and_keeps_identity(client):
     assert me2["balance"] == 250             # profile edits never touch the wallet
 
 
+def test_unread_counts_and_read_receipts(client):
+    alice, alice_name = register(client, "9000000050")
+    bob, bob_name = register(client, "9000000051")
+
+    # alice sends bob two messages: bob's list shows them unread
+    client.post("/api/dm", json={"to_user": bob_name, "text": "one"}, headers=alice)
+    client.post("/api/dm", json={"to_user": bob_name, "text": "two"}, headers=alice)
+    d = client.get("/api/dm_list", headers=bob).json()
+    conv = next(c for c in d["conversations"] if c["with"] == alice_name)
+    assert conv["unread"] == 2 and d["total_unread"] >= 2
+
+    # alice sees no unread on her side (they are HER messages)
+    d2 = client.get("/api/dm_list", headers=alice).json()
+    conv2 = next(c for c in d2["conversations"] if c["with"] == bob_name)
+    assert conv2["unread"] == 0
+
+    # opening the conversation marks it read
+    client.get("/api/dm", params={"with_user": alice_name}, headers=bob)
+    d3 = client.get("/api/dm_list", headers=bob).json()
+    conv3 = next(c for c in d3["conversations"] if c["with"] == alice_name)
+    assert conv3["unread"] == 0
+
+
+def test_otp_rate_limit(client, monkeypatch):
+    monkeypatch.setattr(main, "OTP_MAX_PER_HOUR", 3)
+    for i in range(3):
+        assert client.post("/api/otp/send", json={"phone": "9000000060"}).json()["ok"], f"send {i+1} should pass"
+    r = client.post("/api/otp/send", json={"phone": "9000000060"})
+    assert r.status_code == 429 and r.json()["code"] == "otp_rate_limited"
+    # a different phone is unaffected (limit is per number)
+    assert client.post("/api/otp/send", json={"phone": "9000000061"}).json()["ok"]
+
+
 # ----------------------------------------------------------------- public ----
 
 def test_public_endpoints_stay_public(client):

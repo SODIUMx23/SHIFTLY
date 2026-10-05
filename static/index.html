@@ -251,11 +251,10 @@
         <div class="flex gap-3 flex-wrap">
           <button onclick="openTopUpModal()" class="btn-primary"><i class="fa-solid fa-plus mr-1.5"></i> UPI Top Up</button>
           <button onclick="openUpiPayModal()" class="btn-green"><i class="fa-solid fa-lock mr-1.5"></i> Lock Funds (UPI)</button>
-          <button onclick="simulateEOD()" class="btn-secondary"><i class="fa-solid fa-bolt mr-1.5"></i> Simulate EOD Settlement</button>
           <button onclick="setTab('marketplace')" class="btn-secondary"><i class="fa-solid fa-bullhorn mr-1.5"></i> Post Gig</button>
         </div>
         <div class="mt-4 p-3 rounded-xl bg-[#FDF8F0] border border-[#E8D9C3] text-xs text-[#5C554D] leading-relaxed">
-          <strong class="text-[#8B4500]">Fee Model:</strong> 3% platform host cut on every gig. Workers receive <strong>97%</strong> of the bounty. Daily EOD settlement at 11:59 PM. <strong>UPI ID</strong> required for wallet top-up.
+          <strong class="text-[#8B4500]">Fee Model:</strong> 3% platform host cut on every gig. Workers receive <strong>97%</strong> of the bounty. Payout is released to the wallet instantly when the poster marks the gig complete. <strong>UPI ID</strong> used for wallet top-up.
         </div>
       </div>
       <div class="bg-white rounded-3xl p-6 shadow-sm border border-[#E8D9C3]">
@@ -288,7 +287,7 @@
       </div>
       <div class="grid md:grid-cols-2 gap-4">
         <div class="bg-white rounded-3xl p-6 shadow-sm border border-[#E8D9C3]"><h4 class="font-extrabold mb-2 text-[#1F1812]">About · परिचय</h4><p class="text-sm text-[#5C554D] leading-relaxed">This is a real-time Indian campus gig marketplace prototype. Multi-device sync, SQLite database, UPI wallet flow, Hindi/English labels, and Swiggy-style card UX. Share the URL with friends to test live gigs.</p></div>
-        <div class="bg-white rounded-3xl p-6 shadow-sm border border-[#E8D9C3]"><h4 class="font-extrabold mb-2 text-[#1F1812]">How It Works · कैसे काम करता है</h4><ul class="text-sm text-[#5C554D] list-disc pl-4 space-y-1 leading-relaxed"><li>Post a gig with UPI escrow hold (3% host fee).</li><li>Other devices see it instantly via SQLite server.</li><li>Click <strong>Take Gig</strong> — DM opens automatically.</li><li>Complete to release 97% to worker via EOD settlement.</li></ul></div>
+        <div class="bg-white rounded-3xl p-6 shadow-sm border border-[#E8D9C3]"><h4 class="font-extrabold mb-2 text-[#1F1812]">How It Works · कैसे काम करता है</h4><ul class="text-sm text-[#5C554D] list-disc pl-4 space-y-1 leading-relaxed"><li>Post a gig with UPI escrow hold (3% host fee).</li><li>Other devices see it instantly via SQLite server.</li><li>Click <strong>Take Gig</strong> — DM opens automatically.</li><li>Poster marks complete → 97% lands in the worker's wallet instantly.</li></ul></div>
       </div>
       <div class="bg-white rounded-3xl p-6 shadow-sm border border-[#E8D9C3]">
         <h4 class="font-extrabold mb-2 text-[#1F1812]">Account · खाता</h4>
@@ -303,7 +302,7 @@
 
   </main>
 
-  <footer class="border-t border-[#E8D9C3] bg-[#FDF8F0]/60 py-3 px-4 text-center text-[11px] text-[#8B7355]">Shiftly Prototype · Indian Campus Gig Marketplace · SQLite DB · UPI Wallet · EOD Settlement</footer>
+  <footer class="border-t border-[#E8D9C3] bg-[#FDF8F0]/60 py-3 px-4 text-center text-[11px] text-[#8B7355]">Shiftly Prototype · Indian Campus Gig Marketplace · SQLite DB · UPI Wallet · Instant Escrow Payouts</footer>
 </div>
 
 <!-- Post Gig Modal -->
@@ -433,13 +432,17 @@ async function sendOtp(e){
     const r = await fetch('/api/otp/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:phone})});
     const data = await r.json();
     if(data.ok){ $('step-phone').classList.add('hidden'); $('step-otp').classList.remove('hidden'); showToast('OTP sent successfully · OTP भेज दिया गया', 'success'); }
-    else showToast('Failed to send OTP','error');
+    else showToast(data.error || 'Failed to send OTP','error');
   }catch(err){showToast('Error sending OTP','error');}
 }
 async function resendOtp(){
   const phone = $('reg-phone').value.trim();
   if(!phone) return;
-  try{await fetch('/api/otp/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:phone})}); showToast('OTP resent · OTP फिर भेजा गया','info');}catch(e){}
+  try{
+    const r = await fetch('/api/otp/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:phone})});
+    const data = await r.json();
+    showToast(data.ok ? 'OTP resent · OTP फिर भेजा गया' : (data.error || 'Failed to resend'), data.ok ? 'info' : 'error');
+  }catch(e){}
 }
 async function verifyOtp(e){
   e.preventDefault();
@@ -630,10 +633,16 @@ async function loadDMList(){
     (data.conversations||[]).forEach(c=>{
       const btn = document.createElement('button');
       btn.className = 'w-full text-left px-3 py-2.5 rounded-xl bg-white/80 hover:bg-[#F5F1E8] border border-[#E8D9C3] hover:border-[#FF9933]/50 transition text-xs shadow-sm';
-      btn.innerHTML = `<div class="font-extrabold text-sm text-[#1F1812]">${c.name}</div><div class="text-[#5C554D] truncate">${c.last}</div>`;
+      btn.innerHTML = `<div class="flex items-center justify-between gap-2"><span class="font-extrabold text-sm text-[#1F1812] truncate">${c.name}</span>${c.unread>0 ? `<span class="min-w-[18px] h-[18px] px-1 rounded-full bg-[#FF9933] text-white text-[10px] font-extrabold flex items-center justify-center flex-shrink-0">${c.unread}</span>` : ''}</div><div class="text-[#5C554D] truncate">${c.last}</div>`;
       btn.onclick = ()=>{ currentDMWith = c.with; setTab('dms'); loadDMMessages(); };
       list.appendChild(btn);
     });
+    // tab-bar badge: only visible when there IS something to read
+    const badge = $('dm-badge');
+    if(badge){ const total = data.total_unread || 0;
+      badge.textContent = total;
+      badge.classList.toggle('hidden', total === 0);
+    }
   }catch(e){}
 }
 
@@ -800,9 +809,6 @@ async function submitProfileEdit(){
   }catch(e){showToast('Server error','error');}
 }
 
-function simulateEOD(){
-  showToast('Simulating EOD settlement — 97% payouts released to workers.', 'success');
-}
 
 window.addEventListener('load',async ()=>{
   const saved = localStorage.getItem('cp_user');

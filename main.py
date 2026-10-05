@@ -10,7 +10,13 @@ from datetime import datetime, timezone
 import uuid
 
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+# The frontend is served by this same app (same origin), so CORS headers are
+# for THIRD-PARTY browser apps only. Default: none. Allow specific origins via
+# ALLOWED_ORIGINS=https://app.example.com,https://other.example.com
+ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS,
+                   allow_credentials=bool(ALLOWED_ORIGINS),
+                   allow_methods=["*"], allow_headers=["*"])
 
 def _load_dotenv(path=".env"):
     """Minimal .env loader so config can live in one file. No extra dependency.
@@ -62,7 +68,8 @@ def init_db():
     CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         from_user TEXT, to_user TEXT, text TEXT,
-        context TEXT, time TEXT
+        context TEXT, time TEXT,
+        seen INTEGER DEFAULT 0
     )""")
     conn.execute("""
     CREATE TABLE IF NOT EXISTS transactions (
@@ -358,6 +365,10 @@ def get_dm(with_user: str, me: str = Depends(current_user)):
     rows = conn.execute(
         "SELECT * FROM messages WHERE ((from_user=? AND to_user=?) OR (from_user=? AND to_user=?)) ORDER BY time ASC",
         (me, with_user, with_user, me)).fetchall()
+    # Opening this conversation is an explicit act of reading it.
+    conn.execute("UPDATE messages SET seen=1 WHERE from_user=? AND to_user=? AND seen=0",
+                 (with_user, me))
+    conn.commit()
     conn.close()
     return {"messages": [dict(r) for r in rows]}
 
@@ -370,13 +381,19 @@ def dm_list(me: str = Depends(current_user)):
         (me, me, me)).fetchall()
     partners = [r["partner"] for r in rows if r["partner"] and r["partner"]!=me]
     result = []
+    total_unread = 0
     for p in partners:
         name_row = conn.execute("SELECT name FROM users WHERE username=?", (p,)).fetchone()
         last = conn.execute("SELECT text FROM messages WHERE (from_user=? AND to_user=?) OR (from_user=? AND to_user=?) ORDER BY time DESC LIMIT 1",
                             (me, p, p, me)).fetchone()
-        result.append({"with": p, "name": name_row["name"] if name_row else p, "last": last["text"] if last else ""})
+        unread = conn.execute(
+            "SELECT COUNT(*) AS c FROM messages WHERE from_user=? AND to_user=? AND seen=0",
+            (p, me)).fetchone()["c"]
+        total_unread += unread
+        result.append({"with": p, "name": name_row["name"] if name_row else p,
+                       "last": last["text"] if last else "", "unread": unread})
     conn.close()
-    return {"conversations": result}
+    return {"conversations": result, "total_unread": total_unread}
 
 @app.post("/api/wallet/topup")
 def topup(req: TopUpReq, username: str = Depends(current_user)):
@@ -548,11 +565,34 @@ class OtpVerifyReq(BaseModel):
     phone: str
     otp: str
 
+# -- OTP abuse guard ---------------------------------------------------------
+# Today each send is free (mock). The moment a real SMS provider is plugged in,
+# each send costs money — and an open endpoint is an invitation to spend it.
+# Cap: OTP_MAX_PER_HOUR per phone (default 8), tracked in-process. At the
+# Razorpay/real-SMS level this moves to Redis + per-IP caps too.
+OTP_MAX_PER_HOUR = int(os.environ.get("OTP_MAX_PER_HOUR", "8") or 8)
+otp_send_log = {}   # phone -> [timestamps]
+
+def _otp_allow(phone: str) -> int:
+    """Returns seconds to wait if over the limit, else 0."""
+    now = time.time()
+    attempts = [t for t in otp_send_log.get(phone, []) if now - t < 3600]
+    otp_send_log[phone] = attempts
+    if len(attempts) >= OTP_MAX_PER_HOUR:
+        return int(3600 - (now - min(attempts)))
+    attempts.append(now)
+    return 0
+
 @app.post("/api/otp/send")
 def otp_send(req: OtpSendReq):
     phone = req.phone.strip()
     if not phone.startswith("+"):
         phone = "+91" + phone.replace("+91","").replace(" ","")
+    wait = _otp_allow(phone)
+    if wait:
+        return JSONResponse(status_code=429, content={
+            "ok": False, "code": "otp_rate_limited",
+            "error": f"Too many OTP requests for this number. Try again in ~{max(1, wait // 60)} min."})
     code = str(random.randint(100000, 999999))
     otp_store[phone] = {"code": code, "expires": time.time() + 300}
     # Mock only — real: call Twilio / Msg91 here
@@ -603,6 +643,15 @@ class AuthError(Exception):
     def __init__(self, code, message, status=401):
         self.code, self.message, self.status = code, message, status
         super().__init__(message)
+
+def _migrate_messages_table():
+    """Add the read-receipt column to an existing messages table (safe to re-run)."""
+    conn = get_db()
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()}
+    if "seen" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN seen INTEGER DEFAULT 0")
+    conn.commit()
+    conn.close()
 
 def _migrate_users_table():
     """Add Google-auth columns to an existing users table (safe to re-run)."""
@@ -751,7 +800,8 @@ def auth_google(req: GoogleAuthReq):
         "profile_complete": bool((user.get("major") or "").strip() and (user.get("dorm") or "").strip()),
     }
 
-_migrate_users_table()  # runs after the helper above is defined
+_migrate_users_table()     # runs after the helpers above are defined
+_migrate_messages_table()
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 

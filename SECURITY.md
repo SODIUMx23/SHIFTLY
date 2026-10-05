@@ -54,6 +54,23 @@ Public on purpose: `GET /api/gigs`, `GET /api/gigs/{id}` (browsing),
 |---|---|---|
 | `SESSION_SECRET` | **production** | 64 hex chars. Generate: `python -c "import secrets; print(secrets.token_hex(32))"`. Render sets it automatically (`generateValue: true` in render.yaml). If unset, a random secret is made at boot and all sessions die on restart. |
 | `SESSION_HOURS` | no | Default 24. |
+| `OTP_MAX_PER_HOUR` | no | Default 8 OTPs per phone per hour, enforced in-process (429 past the cap). Costs become real the moment a SMS provider is plugged in; at that level move this to Redis + per-IP caps. |
+| `ALLOWED_ORIGINS` | no | Comma-separated origins allowed to call the API from a browser. Default **empty** = same-origin only (the app serves its own frontend). Credentials (cookies) are never accepted. |
+
+## Hardening changes (latest pass)
+
+- **Read receipts: ** messages carry `seen`; opening a conversation marks its
+  incoming messages read; `/api/dm_list` returns per-conversation and total
+  unread counts (drives the tab-bar badge).
+- **Money validation**: all amounts must be within ₹1–₹100,000 and backed by
+  real balance (`UPDATE ... WHERE balance >= ?`, atomic). Negative-reward
+  minting, insolvent escrow and negative top-ups are impossible (regression
+  tests in `tests/test_security.py`).
+- **Lifecycle guards**: can't accept your own gig; only the poster completes,
+  and only when a worker is assigned; OPEN gigs can be cancelled exactly once
+  with an escrow refund; mid-work cancellation is a 409 pending a dispute flow.
+- **CORS** stays same-origin by default; third-party browser apps need an
+  explicit `ALLOWED_ORIGINS` entry.
 
 ## Still mock (next roadmap level — NOT real money yet)
 
