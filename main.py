@@ -264,15 +264,33 @@ def me(username: str = Depends(current_user)):
     user = dict(row); user["ok"] = True
     return user
 
+MAX_GIG_REWARD = 100000      # sanity cap — any real gig is far below this
+MAX_TOPUP      = 100000      # mock wallet cap; real gateway replaces this
+
+def _move_to_escrow(conn, username: str, amount: float) -> bool:
+    """Atomically move balance -> escrow ONLY if the funds actually exist.
+    Returns False (and moves nothing) when the balance can't cover it, so
+    escrow can never  be backed by money nobody has."""
+    cur = conn.execute(
+        "UPDATE users SET balance = balance - ?, escrow = escrow + ? "
+        "WHERE username=? AND balance >= ?",
+        (amount, amount, username, amount))
+    return cur.rowcount == 1
+
 @app.post("/api/gigs")
 def post_gig(req: PostGigReq, poster: str = Depends(current_user)):
+    if not (0 < req.reward <= MAX_GIG_REWARD):
+        raise HTTPException(400, {"ok": False,
+            "error": f"Reward must be between ₹1 and ₹{MAX_GIG_REWARD:,}."})
     gid = str(uuid.uuid4())[:8]
     conn = get_db()
+    if not _move_to_escrow(conn, poster, req.reward):
+        conn.close()
+        raise HTTPException(400, {"ok": False,
+            "error": "Insufficient balance. Top up your wallet first."})
     conn.execute("INSERT INTO gigs (id,title,category,reward,urgency,location,instructions,poster,worker,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                  (gid, req.title, req.category, req.reward, req.urgency, req.location, req.instructions, poster, None, "OPEN", datetime.now(timezone.utc).isoformat()))
     # Escrow hold from poster
-    conn.execute("UPDATE users SET balance = MAX(0, balance - ?), escrow = escrow + ? WHERE username=?",
-                 (req.reward, req.reward, poster))
     conn.execute("INSERT INTO transactions (username,type,amount,note,time) VALUES (?,?,?, ?,?)",
                  (poster, "escrow_hold", -req.reward, f"Gig: {req.title}", datetime.now(timezone.utc).isoformat()))
     conn.commit()
@@ -352,6 +370,9 @@ def dm_list(me: str = Depends(current_user)):
 
 @app.post("/api/wallet/topup")
 def topup(req: TopUpReq, username: str = Depends(current_user)):
+    if not (0 < req.amount <= MAX_TOPUP):
+        raise HTTPException(400, {"ok": False,
+            "error": f"Top-up amount must be between ₹1 and ₹{MAX_TOPUP:,}."})
     conn = get_db()
     conn.execute("UPDATE users SET balance = balance + ? WHERE username=?", (req.amount, username))
     conn.execute("INSERT INTO transactions (username,type,amount,note,time) VALUES (?,?,?, ?,?)",
@@ -366,10 +387,13 @@ def upi_pay(req: UpiPayReq, username: str = Depends(current_user)):
     # Mock UPI verification (4-digit PIN)
     if req.pin != "1234":
         return {"error":"Invalid UPI PIN. Try 1234 for demo."}
+    if not (0 < req.amount <= MAX_TOPUP):
+        raise HTTPException(400, {"ok": False, "error": "Invalid amount."})
     conn = get_db()
-    # Deduct from wallet / hold
-    conn.execute("UPDATE users SET balance = MAX(0, balance - ?), escrow = escrow + ? WHERE username=?",
-                 (req.amount, req.amount, username))
+    if not _move_to_escrow(conn, username, req.amount):
+        conn.close()
+        raise HTTPException(400, {"ok": False,
+            "error": "Insufficient balance to lock that much into escrow."})
     conn.execute("INSERT INTO transactions (username,type,amount,note,time) VALUES (?,?,?, ?,?)",
                  (username, "upi_pay", -req.amount, f"UPI Payment Lock — Demo PIN verified", datetime.now(timezone.utc).isoformat()))
     conn.commit()
@@ -386,6 +410,10 @@ def complete_gig(gig_id: str, req: AcceptReq, caller: str = Depends(current_user
         conn.close()
         raise HTTPException(403, {"ok": False,
                                   "error": "Only the gig's poster can mark it complete and release the payment."})
+    if gig["status"] != "IN_PROGRESS" or not gig["worker"]:
+        conn.close()
+        raise HTTPException(409, {"ok": False,
+                                  "error": "This gig has no worker yet — completing it now would lock your escrow."})
     conn.execute("UPDATE gigs SET status='COMPLETED' WHERE id=?", (gig_id,))
     worker = gig["worker"]
     if poster and worker:
