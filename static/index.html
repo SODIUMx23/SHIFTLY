@@ -294,7 +294,10 @@
         <h4 class="font-extrabold mb-2 text-[#1F1812]">Account · खाता</h4>
         <p class="text-[10px] font-extrabold uppercase tracking-widest text-[#8B7355] mb-1">Signed in as</p>
         <p id="profile-email" class="text-sm font-mono font-bold text-[#1F1812] break-all mb-3">—</p>
-        <button onclick="signOut()" class="btn-secondary text-sm">Sign out</button>
+        <div class="flex gap-2 flex-wrap">
+          <button onclick="openEditProfile()" class="btn-primary text-sm"><i class="fa-solid fa-pen mr-1.5"></i> Edit Profile</button>
+          <button onclick="signOut()" class="btn-secondary text-sm">Sign out</button>
+        </div>
       </div>
     </section>
 
@@ -336,6 +339,28 @@
     <textarea id="rate-review" rows="2" maxlength="300" placeholder="Optional review (max 300 chars)" class="w-full bg-[#FDF8F0] border border-[#D9CDB8] rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-[#FF9933] resize-none"></textarea>
     <button onclick="submitRating()" class="btn-primary w-full mt-3"><i class="fa-solid fa-star mr-1.5"></i> Submit Rating</button>
   </div>
+  <div id="modal-edit" class="bg-white/95 backdrop-blur-xl max-w-md w-full rounded-3xl p-6 shadow-2xl relative hidden border border-[#E8D9C3] animate-[fadeUp_0.3s_ease]">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-extrabold text-[#1F1812] text-lg">Edit Profile</h3>
+      <button onclick="closeModals()" class="text-[#8B7355] hover:text-[#1F1812] text-xl leading-none">&times;</button>
+    </div>
+    <div class="space-y-3">
+      <div><label class="block text-[11px] font-extrabold uppercase tracking-widest text-[#8B5A2B] mb-1">Name</label>
+        <input id="ed-name" type="text" maxlength="60" class="w-full bg-[#FDF8F0] border border-[#D9CDB8] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#FF9933]" /></div>
+      <div><label class="block text-[11px] font-extrabold uppercase tracking-widest text-[#8B5A2B] mb-1">Role</label>
+        <select id="ed-role" class="w-full bg-[#FDF8F0] border border-[#D9CDB8] rounded-xl px-3 py-2 text-sm"><option>Poster / Host</option><option>Worker / Runner</option><option>Both</option></select></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="block text-[11px] font-extrabold uppercase tracking-widest text-[#8B5A2B] mb-1">Course / Year</label>
+          <input id="ed-major" type="text" maxlength="40" class="w-full bg-[#FDF8F0] border border-[#D9CDB8] rounded-xl px-3 py-2 text-sm" /></div>
+        <div><label class="block text-[11px] font-extrabold uppercase tracking-widest text-[#8B5A2B] mb-1">Hostel / Dorm</label>
+          <input id="ed-dorm" type="text" maxlength="40" class="w-full bg-[#FDF8F0] border border-[#D9CDB8] rounded-xl px-3 py-2 text-sm" /></div>
+      </div>
+      <div><label class="block text-[11px] font-extrabold uppercase tracking-widest text-[#8B5A2B] mb-1">UPI ID</label>
+        <input id="ed-upi" type="text" maxlength="60" class="w-full bg-[#FDF8F0] border border-[#D9CDB8] rounded-xl px-3 py-2 text-sm font-mono" /></div>
+      <p class="text-[10px] text-[#8B7355] leading-relaxed">Your username, wallet balance and rating can't be changed from here. Username is tied to your sign-in identity.</p>
+      <button onclick="submitProfileEdit()" class="btn-primary w-full"><i class="fa-solid fa-floppy-disk mr-1.5"></i> Save Changes</button>
+    </div>
+  </div>
   <div id="modal-upi-pin" class="bg-white/95 backdrop-blur-xl max-w-md w-full rounded-3xl p-6 shadow-2xl relative hidden border border-[#E8D9C3] animate-[fadeUp_0.3s_ease]">
     <div class="flex items-center justify-between border-b border-[#E8D9C3] pb-3 mb-4"><h3 class="font-extrabold text-lg text-[#1F1812]"><i class="fa-solid fa-mobile-screen-button text-[#FF9933] mr-2"></i>UPI PIN Verification</h3><button onclick="closeModals()" class="text-[#8B7355]"><i class="fa-solid fa-xmark"></i></button></div>
     <p class="text-xs text-[#5C554D] mb-3">Enter your 4-digit UPI PIN to lock funds in escrow. <strong>Demo PIN: 1234</strong></p>
@@ -354,6 +379,7 @@
 let currentUser = null;
 let sessionToken = localStorage.getItem('cp_session') || null;
 let ratedGigs = new Set();   // gigs I have already rated (drives the star buttons)
+let currentUserData = null;  // last copy of my own row — prefills the edit form
 
 // Every protected API call goes through here so the Bearer session token rides
 // along automatically. A 401 means the session died (server restart, expiry):
@@ -478,6 +504,7 @@ async function loadUser(){
     const r = await api('/api/me');
     const data = await r.json();
     if(data.username){
+      currentUserData = data;
       $('header-balance').textContent = fmt(data.balance);
       $('header-escrow').textContent = fmt(data.escrow);
       $('wallet-balance').textContent = fmt(data.balance);
@@ -495,7 +522,11 @@ async function loadUser(){
       const colors = {indigo:'from-[#4A2A14] to-[#FF9933]', emerald:'from-[#138808] to-[#0F6B0B]', amber:'from-[#D4A843] to-[#B8860B]', rose:'from-[#B83A3A] to-[#7A2B2B]', violet:'from-[#6B3FA0] to-[#4A2568]'};
       $('profile-avatar').className = 'w-24 h-24 rounded-3xl text-3xl font-extrabold text-white shadow-xl shadow-orange-200/40 flex items-center justify-center flex-shrink-0 bg-gradient-to-tr '+(colors[data.avatar_color]||colors.indigo);
       $('profile-avatar').textContent = data.name.split(' ').map(n=>n[0]).join('').slice(0,2);
-      $('profile-gigs-count').textContent = '3';
+      try{
+        const gr = await fetch('/api/gigs');
+        const gd = await gr.json();
+        $('profile-gigs-count').textContent = (gd.gigs||[]).filter(g=>g.poster===currentUser||g.worker===currentUser).length;
+      }catch(e2){}
     }
   }catch(e){console.error(e);}
 }
@@ -552,7 +583,7 @@ async function acceptGig(id){
 
 // POST GIG
 function openPostModal(){ $('modal-backdrop').classList.remove('hidden'); $('modal-post').classList.remove('hidden'); $('modal-topup').classList.add('hidden'); $('modal-upi-pin').classList.add('hidden'); }
-function closeModals(){ $('modal-backdrop').classList.add('hidden'); $('modal-post').classList.add('hidden'); $('modal-topup').classList.add('hidden'); $('modal-upi-pin').classList.add('hidden');  const mr=$('modal-rate'); if(mr) mr.classList.add('hidden'); }
+function closeModals(){ $('modal-backdrop').classList.add('hidden'); $('modal-post').classList.add('hidden'); $('modal-topup').classList.add('hidden'); $('modal-upi-pin').classList.add('hidden'); const mr=$('modal-rate'); if(mr) mr.classList.add('hidden'); const me3=$('modal-edit'); if(me3) me3.classList.add('hidden'); }
 function setTopUp(n){ $('top-up-val').value = n; }
 function openTopUpModal(){ $('modal-backdrop').classList.remove('hidden'); $('modal-post').classList.add('hidden'); $('modal-topup').classList.remove('hidden'); $('modal-upi-pin').classList.add('hidden'); }
 function openUpiPayModal(){ $('modal-backdrop').classList.remove('hidden'); $('modal-post').classList.add('hidden'); $('modal-topup').classList.add('hidden'); $('modal-upi-pin').classList.remove('hidden'); $('upi-pay-amount').textContent = fmt(100); }
@@ -726,6 +757,45 @@ async function submitRating(){
       const err = data.error || (data.detail && data.detail.error) || 'Could not rate';
       if(err.toLowerCase().includes('already')){ ratedGigs.add(ratingGigId); closeModals(); renderGigs(); }
       showToast(err,'error');
+    }
+  }catch(e){showToast('Server error','error');}
+}
+
+// --- Edit profile ---
+function openEditProfile(){
+  if(!currentUserData) return;
+  $('ed-name').value  = currentUserData.name  || '';
+  $('ed-role').value  = ['Poster / Host','Worker / Runner','Both'].includes(currentUserData.role) ? currentUserData.role : 'Both';
+  $('ed-major').value = currentUserData.major || '';
+  $('ed-dorm').value  = currentUserData.dorm  || '';
+  $('ed-upi').value   = currentUserData.upi_id || '';
+  $('modal-edit').classList.remove('hidden');
+  $('modal-backdrop').classList.remove('hidden');
+}
+async function submitProfileEdit(){
+  const payload = {
+    name: $('ed-name').value.trim(),
+    role: $('ed-role').value,
+    major: $('ed-major').value.trim(),
+    dorm: $('ed-dorm').value.trim(),
+    avatar_color: selectedAccent,
+    upi_id: $('ed-upi').value.trim()
+  };
+  if(!payload.name || !payload.major || !payload.dorm){
+    showToast('Name, course and hostel are all required','error'); return;
+  }
+  try{
+    const r = await api('/api/register',{method:'POST',body:JSON.stringify(payload)});
+    const data = await r.json();
+    if(data.ok && data.session){
+      sessionToken = data.session;                        // fresh 24h session comes back
+      localStorage.setItem('cp_session', sessionToken);
+      closeModals();
+      await loadUser();
+      renderGigs();
+      showToast('Profile updated \u00b7 \u092a\u094d\u0930\u094b\u092b\u093c\u093e\u0907\u0932 \u0905\u092a\u0921\u0947\u091f','success');
+    } else {
+      showToast(data.error || (data.detail && data.detail.error) || 'Could not update profile','error');
     }
   }catch(e){showToast('Server error','error');}
 }

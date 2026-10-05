@@ -269,6 +269,19 @@ def test_ratings_update_average_once_per_participant(client):
     assert gid in rated
 
 
+def test_profile_edit_updates_and_keeps_identity(client):
+    auth, me = register(client, "9000000040", name="Old Name")
+    r = client.post("/api/register", headers=auth, json={
+        "name": "New Name", "role": "Worker / Runner",
+        "major": "ECE '27", "dorm": "C-Block", "upi_id": "new@okaxis"})
+    d = r.json()
+    assert d["ok"] and d["username"] == me   # same account, never a new identity
+    me2 = client.get("/api/me", headers=auth).json()
+    assert me2["name"] == "New Name" and me2["major"] == "ECE '27"
+    assert me2["dorm"] == "C-Block" and me2["upi_id"] == "new@okaxis"
+    assert me2["balance"] == 250             # profile edits never touch the wallet
+
+
 # ----------------------------------------------------------------- public ----
 
 def test_public_endpoints_stay_public(client):
