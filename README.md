@@ -46,20 +46,18 @@ Payment flow is signature-verified and idempotent: the server creates the
 order, the browser pays Razorpay directly, the server re-computes the HMAC
 before crediting, and `UNIQUE(payment_id)` guarantees once-only crediting.
 
-## Deploy to Render (production)
-1. Push this repo to GitHub.
-2. Render dashboard → **New → Blueprint** → pick the repo (it reads
-   `render.yaml`). Render asks you to fill the `sync: false` values:
-   paste the four `FIREBASE_*` values from `.env`.
-3. (Recommended) enable the **disk block** in `render.yaml` first, and set
-   `DB_PATH=/var/data/shiftly.db`, so accounts survive deploys.
-4. Deploy → note your URL `https://shiftly-xxxx.onrender.com`.
-5. **Firebase console → Authentication → Settings → Authorized domains →
-   Add** `shiftly-xxxx.onrender.com` (no `https://`).
-6. Paste `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` into the Render env vars
-   whenever you're ready for real payments.
-7. Submit `https://<your-app>/privacy.html`, `/terms.html`, `/contact.html`
-   URLs during Razorpay KYC — they're already live.
+## Deploy options
+- **No credit card:** Back4App Containers (free tier) — connect the GitHub
+  repo, it auto-detects the included `Dockerfile`, paste the `FIREBASE_*` +
+  `SESSION_SECRET` env vars, deploy. Then add the `*.b4a.run` hostname to
+  Firebase → Authentication → Authorized domains.
+- **Render** (card required for new accounts): Render dashboard →
+  **New → Blueprint** → pick the repo (reads `render.yaml`), paste the
+  four `FIREBASE_*` values, deploy, then whitelist the `onrender.com`
+  hostname in Firebase as above. Optional paid disk: uncomment the
+  `disk:`/`DB_PATH` pair in `render.yaml` for persistence.
+SQLite resets on restarts/redeploy under every free plan; paid hosts let you
+mount a disk (set `DB_PATH` to it — the app persists automatically).
 
 ## Tests
 ```bash
