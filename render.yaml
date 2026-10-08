@@ -5,8 +5,11 @@ services:
     buildCommand: "pip install -r requirements.txt"
     startCommand: "python main.py"
     healthCheckPath: "/api/health"
-    # Persistent disk = SQLite survives deploys/restarts. $10/mo on Render starter;
-    # delete this block for the free plan (DB resets on every restart — demo only).
+    # --- Persistence (OPTIONAL, paid) ---------------------------------------
+    # Free plan: SQLite keeps working in the app folder, but the database
+    # resets every restart/redeploy. To keep accounts & money permanently,
+    # uncomment BOTH the disk block and the DB_PATH line below ($0.25/GB-mo,
+    # paid instance required), then redeploy.
     # disk:
     #   name: shiftly-data
     #   mountPath: /var/data
@@ -14,8 +17,8 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11
-      - key: DB_PATH
-        value: /var/data/shiftly.db   # pair with the disk block above
+      # - key: DB_PATH           # uncomment together with the disk block above
+      #   value: /var/data/shiftly.db
 
       # --- Google Sign-In (Firebase) -------------------------------------
       # `sync: false` means Render asks you for the value and never reads it

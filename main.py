@@ -44,7 +44,24 @@ _load_dotenv()
 # ephemeral filesystem) point DB_PATH at a mounted disk so sign-ups, gigs and
 # wallet balances survive deploys and restarts:
 #   DB_PATH=/var/data/shiftly.db        (Render persistent disk)
-DB = os.environ.get("DB_PATH", "shiftly.db")
+def _resolve_db(path: str) -> str:
+    """Honor DB_PATH only if we can actually write there. On Render's free plan
+    there is no disk: /var/data doesn't exist, and crashing at boot for that
+    would take the whole site down — fall back to the local file (with the
+    known free-plan caveat: data resets on every restart/redeploy)."""
+    if not path:
+        return "shiftly.db"
+    folder = os.path.dirname(path)
+    if folder:
+        try:
+            os.makedirs(folder, exist_ok=True)
+        except Exception:
+            print(f"[db] cannot create {folder} (no disk mounted?) — "
+                  "falling back to local shiftly.db")
+            return "shiftly.db"
+    return path
+
+DB = _resolve_db(os.environ.get("DB_PATH", "shiftly.db").strip())
 PHOTO_MAX_B64 = 273_000   # ~200 KB binary image, as a base64 data URL
 
 def get_db():
