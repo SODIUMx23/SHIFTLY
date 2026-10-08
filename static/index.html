@@ -322,7 +322,7 @@
     <a href="privacy.html" target="_blank" class="font-bold hover:text-[#8B4500] underline underline-offset-2">Privacy</a> ·
     <a href="terms.html" target="_blank" class="font-bold hover:text-[#8B4500] underline underline-offset-2">Terms</a> ·
     <a href="contact.html" target="_blank" class="font-bold hover:text-[#8B4500] underline underline-offset-2">Contact</a>
-    <span class="opacity-60 ml-1">· v2.2</span>
+    <span class="opacity-60 ml-1">· v2.3</span>
   </footer>
 </div>
 
@@ -761,7 +761,7 @@ async function submitPost(e){
     const r = await api('/api/gigs',{method:'POST',body:JSON.stringify(payload)});
     const data = await r.json();
     if(data.ok){ showToast('Gig posted! UPI escrow locked.', 'success'); closeModals(); renderGigs(); loadUser(); }
-    else showToast('Failed to post','error');
+    else showToast(data.error || (data.detail && data.detail.error) || 'Failed to post','error');
   }catch(e){showToast('Server error','error');}
 }
 

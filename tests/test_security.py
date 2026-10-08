@@ -391,3 +391,24 @@ def test_health_reports_feature_flags(client):
     data = client.get("/api/health").json()
     assert data["ok"] is True
     assert "payments" in data and "google_sign_in" in data
+
+
+def test_session_for_deleted_user_fails_closed(client):
+    """Free-tier deploys wipe the DB but browser tokens stay cryptographically
+    valid. A token whose account row is gone must 401 (frontend logs out and
+    re-authenticates, recreating the row) — never 'succeed' into silent no-op
+    writes the way it did before."""
+    ghost = {"Authorization": "Bearer " + main.create_session("ghost_user_xyz")}
+    assert client.get("/api/me", headers=ghost).status_code == 401
+    r = client.post("/api/gigs", headers=ghost, json={
+        "title": "x", "category": "x", "reward": 10, "urgency": "x",
+        "location": "x", "instructions": "x"})
+    assert r.status_code == 401
+    assert r.json()["detail"]["code"] == "user_missing"
+    # and a REAL user that gets deleted mid-session fails the same way
+    auth, username = register(client, "9000000014")
+    assert client.get("/api/me", headers=auth).status_code == 200
+    conn = main.get_db()
+    conn.execute("DELETE FROM users WHERE username=?", (username,))
+    conn.commit(); conn.close()
+    assert client.get("/api/me", headers=auth).status_code == 401

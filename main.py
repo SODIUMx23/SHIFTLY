@@ -261,13 +261,28 @@ def session_payload(authorization: str = Header(default="")) -> dict:
     return payload
 
 def current_user(authorization: str = Header(default="")) -> str:
-    """Dependency: a FULL session. Rejects OTP-pending tokens."""
+    """Dependency: a FULL session whose account row still exists.
+
+    The row-existence check matters on free-tier hosts with ephemeral disks:
+    after a redeploy the database is recreated empty, but old browsers still
+    hold cryptographically-valid tokens. Without this check the app would
+    LOOK signed in while every write silently failed (escrow moves match
+    zero rows). Failing closed with 401 makes the frontend log the user out
+    and re-authenticate — both login paths recreate the row automatically."""
     payload = session_payload(authorization)
     if payload.get("pending") or not payload.get("u"):
         raise HTTPException(401, {"ok": False,
                                   "error": "Finish creating your account first.",
                                   "code": "registration_pending"})
-    return payload["u"]
+    username = payload["u"]
+    conn = get_db()
+    row = conn.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(401, {"ok": False,
+                                  "error": "Your account was reset on the server — please sign in again.",
+                                  "code": "user_missing"})
+    return username
 
 
 @app.post("/api/register")
