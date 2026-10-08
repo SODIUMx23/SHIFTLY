@@ -4,9 +4,18 @@ services:
     env: python
     buildCommand: "pip install -r requirements.txt"
     startCommand: "python main.py"
+    healthCheckPath: "/api/health"
+    # Persistent disk = SQLite survives deploys/restarts. $10/mo on Render starter;
+    # delete this block for the free plan (DB resets on every restart — demo only).
+    # disk:
+    #   name: shiftly-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.11
+      - key: DB_PATH
+        value: /var/data/shiftly.db   # pair with the disk block above
 
       # --- Google Sign-In (Firebase) -------------------------------------
       # `sync: false` means Render asks you for the value and never reads it
@@ -28,4 +37,12 @@ services:
       # Optional. Comma-separated campus domains to restrict sign-in to,
       # e.g. "vitstudent.ac.in,vit.ac.in". Leave empty for any Google account.
       - key: ALLOWED_EMAIL_DOMAINS
+        sync: false
+
+      # --- UPI payments (Razorpay) -------------------------------------------
+      # https://dashboard.razorpay.com/app/keys  — test keys are free; the app
+      # runs in demo-wallet mode until these are filled in.
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
         sync: false

@@ -12,6 +12,12 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<meta name="description" content="Shiftly — the campus gig marketplace. Post errands, tutoring and micro-jobs with escrow-protected UPI payments, and earn money between classes.">
+<meta property="og:title" content="Shiftly — Indian Campus Gig Marketplace">
+<meta property="og:description" content="Post gigs, work errands, get paid instantly to your UPI wallet. Escrow protected.">
+<meta property="og:image" content="assets/img/hero.jpg">
+<meta property="og:type" content="website">
 <script>
   tailwind.config = {
     darkMode: 'class',
@@ -310,7 +316,12 @@
 
   </main>
 
-  <footer class="border-t border-[#E8D9C3] bg-[#FDF8F0]/60 py-3 px-4 text-center text-[11px] text-[#8B7355]">Shiftly Prototype · Indian Campus Gig Marketplace · SQLite DB · UPI Wallet · Instant Escrow Payouts</footer>
+  <footer class="border-t border-[#E8D9C3] bg-[#FDF8F0]/60 py-3 px-4 text-center text-[11px] text-[#8B7355]">
+    Shiftly · Indian Campus Gig Marketplace · UPI Wallet · Escrow-protected payouts &nbsp;·&nbsp;
+    <a href="privacy.html" target="_blank" class="font-bold hover:text-[#8B4500] underline underline-offset-2">Privacy</a> ·
+    <a href="terms.html" target="_blank" class="font-bold hover:text-[#8B4500] underline underline-offset-2">Terms</a> ·
+    <a href="contact.html" target="_blank" class="font-bold hover:text-[#8B4500] underline underline-offset-2">Contact</a>
+  </footer>
 </div>
 
 <!-- Post Gig Modal -->
@@ -334,7 +345,10 @@
     <div class="flex items-center justify-between border-b border-[#E8D9C3] pb-3 mb-4"><h3 class="font-extrabold text-base text-[#1F1812]">UPI Top Up · वॉलेट भरें</h3><button onclick="closeModals()" class="text-[#8B7355] hover:text-[#1F1812]"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="flex gap-2 mb-3"><button onclick="setTopUp(100)" class="flex-1 py-2 rounded-xl border border-[#D9CDB8] bg-[#FDF8F0] text-xs font-extrabold hover:bg-[#F0EBE3]">+ ₹100</button><button onclick="setTopUp(250)" class="flex-1 py-2 rounded-xl border border-[#D9CDB8] bg-[#FDF8F0] text-xs font-extrabold hover:bg-[#F0EBE3]">+ ₹250</button><button onclick="setTopUp(500)" class="flex-1 py-2 rounded-xl border border-[#D9CDB8] bg-[#FDF8F0] text-xs font-extrabold hover:bg-[#F0EBE3]">+ ₹500</button></div>
     <input id="top-up-val" type="number" min="1" value="250" class="w-full mb-3 bg-[#FDF8F0]" />
-    <button onclick="doTopUp()" class="w-full btn-green">Deposit via UPI</button>
+    <button id="topup-razorpay" onclick="payWithRazorpay()" class="w-full btn-green hidden"><i class="fa-solid fa-indian-rupee-sign mr-1.5"></i> Pay with UPI · Razorpay</button>
+    <div id="topup-test-badge" class="hidden mt-2 text-[10px] font-extrabold text-[#8B4513] bg-[#FDF6E3] border border-[#F0DC9E] rounded-lg px-2 py-1.5 leading-relaxed">Razorpay TEST mode — use UPI <span class="font-mono">success@razorpay</span> or card 4111 1111 1111 1111. No real money moves.</div>
+    <div class="flex items-center gap-3 my-3"><span class="flex-1 h-px bg-[#E8D9C3]"></span><span class="text-[10px] font-extrabold uppercase tracking-widest text-[#8B7355]">or</span><span class="flex-1 h-px bg-[#E8D9C3]"></span></div>
+    <button onclick="doTopUp()" class="w-full btn-secondary text-sm">Add play money <span class="opacity-70">(demo)</span></button>
   </div>
   <!-- UPI PIN Modal -->
   <div id="modal-rate" class="bg-white/95 backdrop-blur-xl max-w-sm w-full rounded-3xl p-6 shadow-2xl relative hidden border border-[#E8D9C3] animate-[fadeUp_0.3s_ease]">
@@ -352,6 +366,18 @@
       <button onclick="closeModals()" class="text-[#8B7355] hover:text-[#1F1812] text-xl leading-none">&times;</button>
     </div>
     <div class="space-y-3">
+      <div class="flex items-center gap-4">
+        <div id="ed-photo-preview" class="relative w-16 h-16 rounded-2xl bg-gradient-to-tr from-[#FF9933] to-[#138808] text-white flex items-center justify-center text-xl font-extrabold overflow-hidden flex-shrink-0 shadow-md"><span>A</span></div>
+        <div class="flex-1">
+          <label class="block text-[11px] font-extrabold uppercase tracking-widest text-[#8B5A2B] mb-1.5">Profile Photo</label>
+          <div class="flex gap-2">
+            <button type="button" onclick="$('ed-photo-input').click()" class="btn-secondary text-xs flex-1"><i class="fa-solid fa-camera mr-1"></i> <span id="ed-photo-label">Upload photo</span></button>
+            <button type="button" id="ed-photo-remove" onclick="queuePhotoRemoval()" class="hidden btn-secondary text-xs text-[#B83A3A]"><i class="fa-solid fa-trash"></i></button>
+          </div>
+          <p class="text-[10px] text-[#8B7355] mt-1">Square crops look best. Resized automatically.</p>
+        </div>
+        <input id="ed-photo-input" type="file" accept="image/png,image/jpeg,image/webp" class="hidden" />
+      </div>
       <div><label class="block text-[11px] font-extrabold uppercase tracking-widest text-[#8B5A2B] mb-1">Name</label>
         <input id="ed-name" type="text" maxlength="60" class="w-full bg-[#FDF8F0] border border-[#D9CDB8] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#FF9933]" /></div>
       <div><label class="block text-[11px] font-extrabold uppercase tracking-widest text-[#8B5A2B] mb-1">Role</label>
@@ -439,7 +465,10 @@ async function api(path, opts = {}){
   return r;
 }
 let currentDMWith = null;
+let convCache = {};          // username -> dm_list row (name, has_photo, unread...)
 let currentTab = 'marketplace';
+const NAME_GRADS = ['from-[#4A2A14] to-[#FF9933]','from-[#138808] to-[#0F6B0B]','from-[#D4A843] to-[#B8860B]','from-[#B83A3A] to-[#7A2B2B]','from-[#6B3FA0] to-[#4A2568]'];
+function nameGradient(name){ let h=0; for(const ch of (name||'?')) h=(h*31+ch.charCodeAt(0))%997; return NAME_GRADS[h%NAME_GRADS.length]; }
 let pendingUsername = null;   // set once Google or mobile has been verified
 let firebaseReady = false;
 
@@ -456,6 +485,19 @@ async function enterApp(){
 
 function $(id){return document.getElementById(id);}
 function fmt(n){const v=Math.round((n||0)*100)/100; return '₹'+v.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}
+// Photo cache-buster: bumped whenever I upload a new avatar so my own <img>
+// tags re-fetch instead of showing the hour-old cached one.
+let photoBust = 0;
+// Avatar markup shared by profile, DMs and gig cards. Shows the user's photo
+// when the server says they have one; the coloured initials block stays as
+// the fallback (and as the flash-free base layer while the image loads).
+function initials(name){return (name||'?').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();}
+function avatarHtml(username, name, hasPhoto, outerCls, gradCls, idAttr){
+  const img = hasPhoto
+    ? `<img src="/api/users/${username}/photo${username===currentUser&&photoBust?'?t='+photoBust:''}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover" onerror="this.remove()">`
+    : '';
+  return `<div ${idAttr?`id="${idAttr}" `:''}class="relative overflow-hidden ${outerCls} bg-gradient-to-tr ${gradCls} text-white flex items-center justify-center font-extrabold flex-shrink-0"><span>${initials(name)}</span>${img}</div>`;
+}
 function showToast(msg,type='info'){
   const box=document.createElement('div');
   const color = type==='success'?'bg-gradient-to-r from-[#138808] to-[#0F6B0B]':type==='error'?'bg-gradient-to-r from-[#B83A3A] to-[#7A2B2B]':'bg-gradient-to-r from-[#FF9933] to-[#D46A1A]';
@@ -568,8 +610,9 @@ async function loadUser(){
       $('profile-balance').textContent = fmt(data.balance);
       $('profile-rating').textContent = data.rating;
       const colors = {indigo:'from-[#4A2A14] to-[#FF9933]', emerald:'from-[#138808] to-[#0F6B0B]', amber:'from-[#D4A843] to-[#B8860B]', rose:'from-[#B83A3A] to-[#7A2B2B]', violet:'from-[#6B3FA0] to-[#4A2568]'};
-      $('profile-avatar').className = 'w-24 h-24 rounded-3xl text-3xl font-extrabold text-white shadow-xl shadow-orange-200/40 flex items-center justify-center flex-shrink-0 bg-gradient-to-tr '+(colors[data.avatar_color]||colors.indigo);
-      $('profile-avatar').textContent = data.name.split(' ').map(n=>n[0]).join('').slice(0,2);
+      $('profile-avatar').outerHTML = avatarHtml(data.username, data.name, data.has_photo,
+        'w-24 h-24 rounded-3xl text-3xl shadow-xl shadow-orange-200/40',
+        colors[data.avatar_color]||colors.indigo, 'profile-avatar');
       try{
         const gr = await fetch('/api/gigs');
         const gd = await gr.json();
@@ -670,7 +713,10 @@ async function renderGigs(){
           <span class="flex items-center gap-1"><i class="fa-regular fa-clock text-[#FF9933]"></i> ${timeAgo(g.created_at)}</span>
         </div>
         <div class="pt-2 border-t border-[#E8D9C3] flex items-center justify-between gap-2">
-          <div class="text-[11px] text-[#8B7355] min-w-0 truncate">Host: <strong class="text-[#1F1812]">${g.poster_name||g.poster}</strong> <span class="text-[#D4A843] font-extrabold">\u2605${posterRating}</span></div>
+          <div class="flex items-center gap-2 min-w-0">
+            ${avatarHtml(g.poster, g.poster_name||g.poster, g.poster_has_photo, 'w-7 h-7 rounded-full text-[10px]', nameGradient(g.poster_name||g.poster))}
+            <div class="text-[11px] text-[#8B7355] min-w-0 truncate">Host: <strong class="text-[#1F1812]">${g.poster_name||g.poster}</strong> <span class="text-[#D4A843] font-extrabold">\u2605${posterRating}</span></div>
+          </div>
           ${footBtn}
         </div>`;
       feed.appendChild(card);
@@ -738,10 +784,12 @@ async function loadDMList(){
     const data = await r.json();
     const list = $('dm-list');
     list.innerHTML = '';
+    convCache = {};
     (data.conversations||[]).forEach(c=>{
+      convCache[c.with] = c;
       const btn = document.createElement('button');
       btn.className = 'w-full text-left px-3 py-2.5 rounded-xl bg-white/80 hover:bg-[#F5F1E8] border border-[#E8D9C3] hover:border-[#FF9933]/50 transition text-xs shadow-sm';
-      btn.innerHTML = `<div class="flex items-center justify-between gap-2"><span class="font-extrabold text-sm text-[#1F1812] truncate">${c.name}</span>${c.unread>0 ? `<span class="min-w-[18px] h-[18px] px-1 rounded-full bg-[#FF9933] text-white text-[10px] font-extrabold flex items-center justify-center flex-shrink-0">${c.unread}</span>` : ''}</div><div class="text-[#5C554D] truncate">${c.last}</div>`;
+      btn.innerHTML = `<div class="flex items-center gap-2.5">${avatarHtml(c.with, c.name, c.has_photo, 'w-9 h-9 rounded-full text-xs', nameGradient(c.name))}<div class="flex-1 min-w-0"><div class="flex items-center justify-between gap-2"><span class="font-extrabold text-sm text-[#1F1812] truncate">${c.name}</span>${c.unread>0 ? `<span class="min-w-[18px] h-[18px] px-1 rounded-full bg-[#FF9933] text-white text-[10px] font-extrabold flex items-center justify-center flex-shrink-0">${c.unread}</span>` : ''}</div><div class="text-[#5C554D] truncate">${c.last}</div></div></div>`;
       btn.onclick = ()=>{ currentDMWith = c.with; setTab('dms'); loadDMMessages(); };
       list.appendChild(btn);
     });
@@ -773,9 +821,10 @@ async function loadDMMessages(){
       area.appendChild(bubble);
     });
     area.scrollTop = area.scrollHeight;
-    $('dm-name').textContent = currentDMWith;
-    $('dm-avatar').textContent = currentDMWith[0].toUpperCase();
-    $('dm-avatar').className = 'w-11 h-11 rounded-full bg-gradient-to-tr from-[#FF9933] to-[#D46A1A] text-white flex items-center justify-center text-lg font-extrabold shadow-md';
+    const conv = convCache[currentDMWith] || {};
+    $('dm-name').textContent = conv.name || currentDMWith;
+    $('dm-avatar').outerHTML = avatarHtml(currentDMWith, conv.name || currentDMWith, conv.has_photo,
+      'w-11 h-11 rounded-full text-lg shadow-md', 'from-[#FF9933] to-[#D46A1A]', 'dm-avatar');
   }catch(e){}
 }
 
@@ -821,7 +870,8 @@ function openGigDetail(id){
   $('gd-status').className = 'text-[10px] font-extrabold px-2 py-0.5 rounded-full border ' + (STATUS_STYLE[g.status]||'text-[#8B7355] border-[#D9CDB8]');
   $('gd-host').textContent = g.poster_name || g.poster;
   $('gd-host-rating').textContent = '\u2605' + (g.poster_rating ?? 5.0).toFixed(1);
-  $('gd-avatar').textContent = (g.poster_name || g.poster || '?').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
+  $('gd-avatar').outerHTML = avatarHtml(g.poster, g.poster_name || g.poster, g.poster_has_photo,
+    'w-10 h-10 rounded-full text-sm shadow', nameGradient(g.poster_name || g.poster), 'gd-avatar');
   $('gd-instructions').textContent = g.instructions;
   const isPoster = g.poster===currentUser, isWorker = g.worker===currentUser;
   const other = isPoster ? g.worker : g.poster;
@@ -943,7 +993,66 @@ async function submitRating(){
   }catch(e){showToast('Server error','error');}
 }
 
-// --- Edit profile ---
+// --- Edit profile (incl. photo) ---
+// pendingPhoto: undefined = untouched, '' = user asked to remove, otherwise a
+// resized data URL waiting for Save. The upload rides along with profile save
+// so a half-edited form can't orphan a photo on the server.
+let pendingPhoto;   // undefined | '' | dataURL
+const colorsGlobal = {indigo:'from-[#4A2A14] to-[#FF9933]', emerald:'from-[#138808] to-[#0F6B0B]', amber:'from-[#D4A843] to-[#B8860B]', rose:'from-[#B83A3A] to-[#7A2B2B]', violet:'from-[#6B3FA0] to-[#4A2568]'};
+function paintEdPhoto(){
+  const prev = $('ed-photo-preview');
+  const d = currentUserData || {};
+  const grad = colorsGlobal[d.avatar_color] || colorsGlobal.indigo;
+  let inner = `<span>${initials(d.name||currentUser||'?')}</span>`;
+  let showImg = false, src = '';
+  if(typeof pendingPhoto === 'string' && pendingPhoto){ showImg = true; src = pendingPhoto; }
+  else if(pendingPhoto === undefined && d.has_photo){ showImg = true; src = `/api/users/${currentUser}/photo${photoBust?'?t='+photoBust:''}`; }
+  if(showImg) inner += `<img src="${src}" alt="" class="absolute inset-0 w-full h-full object-cover" onerror="this.remove()">`;
+  prev.className = 'relative w-16 h-16 rounded-2xl bg-gradient-to-tr text-white flex items-center justify-center text-xl font-extrabold overflow-hidden flex-shrink-0 shadow-md ' + grad;
+  prev.innerHTML = inner;
+  const rm = $('ed-photo-remove');
+  if(rm) rm.classList.toggle('hidden', !showImg);
+  const lbl = $('ed-photo-label');
+  if(lbl) lbl.textContent = showImg ? 'Change photo' : 'Upload photo';
+  if(typeof pendingPhoto === 'string' && pendingPhoto) lbl.textContent = 'New photo ready — save to apply';
+}
+function queuePhotoRemoval(){ pendingPhoto = ''; paintEdPhoto(); }
+function downscaleToDataUrl(file, maxSide, quality, cb){
+  const img = new Image();
+  img.onload = ()=>{
+    const s = Math.min(1, maxSide / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * s)), h = Math.max(1, Math.round(img.height * s));
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    c.getContext('2d').drawImage(img, 0, 0, w, h);
+    URL.revokeObjectURL(img.src);
+    cb(c.toDataURL('image/jpeg', quality));
+  };
+  img.onerror = ()=>cb('');
+  img.src = URL.createObjectURL(file);
+}
+function bindPhotoInput(){
+  const inp = $('ed-photo-input');
+  if(!inp || inp.dataset.bound) return;
+  inp.dataset.bound = '1';
+  inp.addEventListener('change', ()=>{
+    const f = inp.files && inp.files[0];
+    inp.value = '';
+    if(!f) return;
+    if(!/^image\/(png|jpe?g|webp)$/.test(f.type)){ showToast('Please pick a PNG, JPEG or WebP image','error'); return; }
+    if(f.size > 8*1024*1024){ showToast('That file is over 8 MB — pick a smaller photo','error'); return; }
+    downscaleToDataUrl(f, 320, 0.85, (url)=>{
+      if(!url){ showToast('Could not read that image','error'); return; }
+      if(url.length > 260000){   // server cap is ~273k; try one more quality step
+        downscaleToDataUrl(f, 256, 0.75, (url2)=>{
+          if(!url2 || url2.length > 260000){ showToast('Photo still too large after resizing — try a tighter crop','error'); return; }
+          pendingPhoto = url2; paintEdPhoto();
+        });
+        return;
+      }
+      pendingPhoto = url; paintEdPhoto();
+    });
+  });
+}
 function openEditProfile(){
   if(!currentUserData) return;
   $('ed-name').value  = currentUserData.name  || '';
@@ -951,6 +1060,9 @@ function openEditProfile(){
   $('ed-major').value = currentUserData.major || '';
   $('ed-dorm').value  = currentUserData.dorm  || '';
   $('ed-upi').value   = currentUserData.upi_id || '';
+  pendingPhoto = undefined;
+  bindPhotoInput();
+  paintEdPhoto();
   $('modal-edit').classList.remove('hidden');
   $('modal-backdrop').classList.remove('hidden');
 }
@@ -972,6 +1084,16 @@ async function submitProfileEdit(){
     if(data.ok && data.session){
       sessionToken = data.session;                        // fresh 24h session comes back
       localStorage.setItem('cp_session', sessionToken);
+      // Photo queued in this edit session? Send it now, same auth token.
+      if(pendingPhoto !== undefined){
+        try{
+          const pr = await api('/api/me/photo',{method:'PUT',body:JSON.stringify({data_url:pendingPhoto})});
+          const pd = await pr.json();
+          if(pd.ok){ if(pendingPhoto) photoBust = Date.now(); }
+          else showToast(pd.error || (pd.detail && pd.detail.error) || 'Profile saved, but the photo was rejected','error');
+        }catch(pe){ showToast('Profile saved, but the photo upload failed','error'); }
+        pendingPhoto = undefined;
+      }
       closeModals();
       await loadUser();
       renderGigs();
@@ -1006,6 +1128,50 @@ window.addEventListener('load',async ()=>{
 </script>
 
 <script>
+let paymentsCfg = {enabled:false, key_id:''};
+function applyPaymentsUi(){
+  const rb = $('topup-razorpay');
+  if(rb) rb.classList.toggle('hidden', !paymentsCfg.enabled);
+  // TEST keys get an unmistakable banner beside the button; LIVE keys stand alone.
+  const badge = $('topup-test-badge');
+  if(badge) badge.classList.toggle('hidden', !(paymentsCfg.enabled && (paymentsCfg.key_id||'').startsWith('rzp_test_')));
+}
+async function payWithRazorpay(){
+  const amount = parseFloat($('top-up-val').value) || 0;
+  if(!(amount > 0)){ showToast('Enter an amount first','error'); return; }
+  if(typeof Razorpay === 'undefined'){ showToast('Payment module could not load — check your internet and retry','error'); return; }
+  let d;
+  try{
+    const r = await api('/api/payments/order',{method:'POST',body:JSON.stringify({amount})});
+    d = await r.json();
+  }catch(e){ showToast('Could not start the payment — server unreachable','error'); return; }
+  if(!d.ok){ showToast(d.error || (d.detail && d.detail.error) || 'Could not start the payment','error'); return; }
+  const rzp = new Razorpay({
+    key: d.key_id, amount: d.amount, currency: d.currency, order_id: d.order_id,
+    name: 'Shiftly',
+    description: 'Wallet top-up · ₹' + amount,
+    prefill: { name: (currentUserData && currentUserData.name) || '',
+               email: (currentUserData && currentUserData.email) || '' },
+    theme: { color: '#FF9933' },
+    handler: async (resp)=>{
+      // Browser trusts nothing: the server re-checks the HMAC signature.
+      try{
+        const vr = await api('/api/payments/verify',{method:'POST',body:JSON.stringify(resp)});
+        const vd = await vr.json();
+        if(vd.ok && vd.verified){
+          showToast(vd.duplicate ? 'Payment already credited' : 'Payment verified — wallet updated \u00b7 \u092d\u0941\u0917\u0924\u093e\u0928 \u0938\u092b\u0932','success');
+          closeModals(); loadUser(); loadActivity();
+        } else {
+          showToast(vd.error || (vd.detail && vd.detail.error) || 'Payment verification failed','error');
+        }
+      }catch(e){ showToast('Verification request failed — if money left your account it will be credited automatically or refunded by Razorpay','error'); }
+    },
+    modal: { ondismiss: ()=>showToast('Payment cancelled — nothing was charged','info') }
+  });
+  rzp.on('payment.failed', f=>showToast('Payment failed: ' + ((f.error && f.error.description) || 'try again'),'error'));
+  rzp.open();
+}
+
 async function initFirebaseAuth(){
   if(typeof firebase === 'undefined'){
     googleNotice('Firebase SDK could not load — the page could not reach the internet. Google sign-in is unavailable; you can still use mobile sign-in.');
@@ -1014,6 +1180,8 @@ async function initFirebaseAuth(){
   try{
     const r = await fetch('/api/auth/config');
     const cfg = await r.json();
+    paymentsCfg = cfg.payments || {enabled:false, key_id:''};
+    applyPaymentsUi();
     if(!cfg.google_sign_in){
       googleNotice('Google sign-in is not switched on yet. Add the FIREBASE_* environment variables — see SETUP-GOOGLE-LOGIN.md in the repo.');
       return false;

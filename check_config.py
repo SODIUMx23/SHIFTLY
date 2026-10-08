@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from main import (  # noqa: E402
     FIREBASE_PROJECT_ID, FIREBASE_API_KEY, FIREBASE_AUTH_DOMAIN,
     FIREBASE_APP_ID, ALLOWED_EMAIL_DOMAINS, GOOGLE_AUTH_AVAILABLE,
+    RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RZP_ENABLED, DB,
 )
 
 ok, warn, bad = [], [], []
@@ -65,6 +66,20 @@ print()
 print(f"  google-auth installed : {GOOGLE_AUTH_AVAILABLE}")
 print(f"  allowed domains       : {ALLOWED_EMAIL_DOMAINS or 'any Google account'}")
 print(f"  /api/auth/config says : google_sign_in={enabled}")
+
+print()
+if RAZORPAY_KEY_ID or RAZORPAY_KEY_SECRET:
+    if RZP_ENABLED:
+        mode = "TEST" if RAZORPAY_KEY_ID.startswith("rzp_test_") else "LIVE"
+        print(f"  payments: Razorpay {mode} mode ✓ (key {RAZORPAY_KEY_ID[:14]}...)")
+    else:
+        print("  ✗ payments: RAZORPAY_* is set but malformed/")
+        print("    incomplete — the checkout button will stay hidden. key_id must look like")
+        print("    rzp_test_... or rzp_live_... and the secret is at least 20 characters.")
+else:
+    print("  ! payments: RAZORPAY_* not set — wallet runs in demo mode (free, fine for testing)")
+print(f"  database file: {DB}"
+      + ("" if os.environ.get("DB_PATH") else "  (local default — set DB_PATH on the host)"))
 
 if bad:
     print("\nRESULT: fix the ✗ items above, then re-run.\n")

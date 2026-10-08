@@ -71,6 +71,11 @@ PROTECTED = [
     ("POST", "/api/gigs/ghost/complete", {"username": "arjun"}),
     ("POST", "/api/gigs/ghost/cancel", {}),
     ("POST", "/api/gigs/ghost/rate", {"stars": 5}),
+    ("PUT", "/api/me/photo", {"data_url": ""}),
+    ("POST", "/api/payments/order", {"amount": 250}),
+    ("POST", "/api/payments/verify", {"razorpay_order_id": "order_x",
+                                      "razorpay_payment_id": "pay_x",
+                                      "razorpay_signature": "sig"}),
 ]
 
 
@@ -331,3 +336,58 @@ def test_public_endpoints_stay_public(client):
     assert client.get("/api/gigs").status_code == 200
     assert client.get("/api/auth/config").status_code == 200
     assert client.post("/api/otp/send", json={"phone": "1"}).status_code == 200
+
+
+# ------------------------------------------------------- profile photos ----
+
+PNG_1PX = ("data:image/png;base64,"
+           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQ"
+           "DwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+
+def test_photo_upload_serve_and_clear(client):
+    auth, username = register(client, "9000000011")
+    # bad payloads are refused
+    r = client.put("/api/me/photo", headers=auth, json={"data_url": "data:text/html;base64,PGI+"})
+    assert r.status_code == 400
+    r = client.put("/api/me/photo", headers=auth,
+                   json={"data_url": "data:image/png;base64," + "QUJD" * 100000})
+    assert r.status_code == 413
+    # valid PNG stores and round-trips as real image bytes
+    r = client.put("/api/me/photo", headers=auth, json={"data_url": PNG_1PX})
+    assert r.status_code == 200 and r.json()["has_photo"] is True
+    r = client.get(f"/api/users/{username}/photo")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert r.content.startswith(b"\x89PNG")
+    # /api/me flags it for the UI
+    assert client.get("/api/me", headers=auth).json()["has_photo"] is True
+    # nobody else can read my photo bytes from /api/me
+    other_auth, _ = register(client, "9000000012")
+    assert "photo_b64" not in client.get("/api/me", headers=other_auth).json()
+    # clearing removes it everywhere
+    r = client.put("/api/me/photo", headers=auth, json={"data_url": ""})
+    assert r.json()["has_photo"] is False
+    assert client.get(f"/api/users/{username}/photo").status_code == 404
+    assert client.get("/api/me", headers=auth).json()["has_photo"] is False
+
+
+# ---------------------------------------------------------- razorpay -------
+
+def test_payments_disabled_without_keys(client):
+    """No RAZORPAY_* env vars => the gateway endpoints exist but refuse work:
+    503 with an explicit code, never a silent demo credit."""
+    auth, _ = register(client, "9000000013")
+    r = client.post("/api/payments/order", headers=auth, json={"amount": 100})
+    assert r.status_code == 503
+    assert r.json()["detail"]["code"] == "payments_not_configured"
+    r = client.post("/api/payments/verify", headers=auth, json={
+        "razorpay_order_id": "order_1", "razorpay_payment_id": "pay_1",
+        "razorpay_signature": "deadbeef"})
+    assert r.status_code == 503
+    # and the flag is off in the public config
+    assert client.get("/api/auth/config").json()["payments"]["enabled"] is False
+
+
+def test_health_reports_feature_flags(client):
+    data = client.get("/api/health").json()
+    assert data["ok"] is True
+    assert "payments" in data and "google_sign_in" in data

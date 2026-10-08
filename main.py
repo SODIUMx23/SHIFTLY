@@ -1,4 +1,4 @@
-import sqlite3, time, random, uuid, os, re
+import sqlite3, time, random, uuid, os, re, mimetypes
 import base64, hashlib, hmac, json, secrets
 from fastapi import FastAPI, Request, Header, HTTPException, Depends
 from fastapi.responses import JSONResponse
@@ -40,7 +40,12 @@ def _load_dotenv(path=".env"):
 _load_dotenv()
 
 
-DB = "shiftly.db"
+# SQLite lives next to the code by default. On Render (or any host with an
+# ephemeral filesystem) point DB_PATH at a mounted disk so sign-ups, gigs and
+# wallet balances survive deploys and restarts:
+#   DB_PATH=/var/data/shiftly.db        (Render persistent disk)
+DB = os.environ.get("DB_PATH", "shiftly.db")
+PHOTO_MAX_B64 = 273_000   # ~200 KB binary image, as a base64 data URL
 
 def get_db():
     conn = sqlite3.connect(DB, check_same_thread=False)
@@ -56,7 +61,9 @@ def init_db():
         avatar_color TEXT, balance REAL DEFAULT 0,
         escrow REAL DEFAULT 0, pending_payout REAL DEFAULT 0,
         total_earned REAL DEFAULT 0, rating REAL DEFAULT 5.0,
-        upi_id TEXT DEFAULT '', created_at TEXT
+        upi_id TEXT DEFAULT '', created_at TEXT,
+        email TEXT, auth_uid TEXT, email_verified INTEGER DEFAULT 0,
+        photo_mime TEXT, photo_b64 TEXT
     )""")
     conn.execute("""
     CREATE TABLE IF NOT EXISTS gigs (
@@ -81,6 +88,14 @@ def init_db():
         gig_id TEXT, rater TEXT, ratee TEXT,
         stars INTEGER, review TEXT, time TEXT,
         PRIMARY KEY (gig_id, rater, ratee)
+    )""")
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        gateway TEXT, order_id TEXT, payment_id TEXT,
+        username TEXT, amount_paise INTEGER, status TEXT,
+        signature TEXT, payload TEXT, created_at TEXT,
+        UNIQUE(payment_id)
     )""")
     conn.commit()
     conn.close()
@@ -267,9 +282,14 @@ def list_users(user: str = Depends(current_user)):
     the server from here — other users have no business seeing them."""
     conn = get_db()
     rows = conn.execute(
-        "SELECT username,name,role,major,dorm,avatar_color,rating,total_earned,created_at FROM users").fetchall()
+        "SELECT username,name,role,major,dorm,avatar_color,rating,total_earned,created_at,photo_b64 FROM users").fetchall()
     conn.close()
-    return {"users": [dict(r) for r in rows]}
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["has_photo"] = bool(d.pop("photo_b64", None))
+        out.append(d)
+    return {"users": out}
 
 @app.get("/api/me")
 def me(username: str = Depends(current_user)):
@@ -278,8 +298,55 @@ def me(username: str = Depends(current_user)):
     conn.close()
     if not row:
         raise HTTPException(404, {"ok": False, "error": "Account not found. Please register again."})
-    user = dict(row); user["ok"] = True
+    user = dict(row)
+    user.pop("photo_b64", None)
+    user["has_photo"] = bool(user.get("photo_b64") or user.get("photo_mime"))
+    user.pop("photo_mime", None)
+    user["ok"] = True
     return user
+
+# --- Profile photos ---------------------------------------------------------
+# Stored in SQLite as base64 data (max ~200 KB image). Served back over
+# /api/users/<u>/photo with long cache headers — one request per user, then
+# the browser CDN-caches it so gig cards cost nothing.
+class PhotoReq(BaseModel):
+    data_url: str  # e.g. "data:image/jpeg;base64,/9j/4AAQ..." — "" to clear
+
+PHOTO_DATA_RE = re.compile(r"^data:(image/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\s]+)$")
+
+@app.put("/api/me/photo")
+def set_photo(req: PhotoReq, username: str = Depends(current_user)):
+    conn = get_db()
+    if not req.data_url.strip():
+        conn.execute("UPDATE users SET photo_mime=NULL, photo_b64=NULL WHERE username=?", (username,))
+        conn.commit(); conn.close()
+        return {"ok": True, "has_photo": False}
+    m = PHOTO_DATA_RE.match(req.data_url.strip())
+    if not m:
+        conn.close()
+        raise HTTPException(400, {"ok": False, "error": "photo must be a PNG, JPEG or WebP image."})
+    mime, b64 = m.group(1), re.sub(r"\s+", "", m.group(2))
+    if len(b64) > PHOTO_MAX_B64:
+        conn.close()
+        raise HTTPException(413, {"ok": False,
+            "error": "Image is too large. Crop or compress it below ~200 KB."})
+    conn.execute("UPDATE users SET photo_mime=?, photo_b64=? WHERE username=?",
+                 (mime, b64, username))
+    conn.commit(); conn.close()
+    return {"ok": True, "has_photo": True, "url": f"/api/users/{username}/photo"}
+
+@app.get("/api/users/{username}/photo")
+def user_photo(username: str):
+    from fastapi.responses import Response
+    conn = get_db()
+    row = conn.execute("SELECT photo_mime, photo_b64 FROM users WHERE username=?",
+                       (username,)).fetchone()
+    conn.close()
+    if not row or not row["photo_b64"]:
+        raise HTTPException(404, {"ok": False, "error": "no photo"})
+    return Response(content=base64.b64decode(row["photo_b64"]),
+                    media_type=row["photo_mime"] or "image/jpeg",
+                    headers={"Cache-Control": "public, max-age=3600"})
 
 MAX_GIG_REWARD = 100000      # sanity cap — any real gig is far below this
 MAX_TOPUP      = 100000      # mock wallet cap; real gateway replaces this
@@ -318,11 +385,16 @@ def post_gig(req: PostGigReq, poster: str = Depends(current_user)):
 def get_gigs():
     conn = get_db()
     rows = conn.execute(
-        "SELECT g.*, u.name AS poster_name, COALESCE(u.rating, 5.0) AS poster_rating "
-        "FROM gigs g LEFT JOIN users u ON u.username = g.poster "
+        "SELECT g.*, u.name AS poster_name, COALESCE(u.rating, 5.0) AS poster_rating, "
+        "u.photo_b64 AS _p FROM gigs g LEFT JOIN users u ON u.username = g.poster "
         "ORDER BY g.created_at DESC").fetchall()
     conn.close()
-    return {"gigs": [dict(r) for r in rows]}
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["poster_has_photo"] = bool(d.pop("_p", None))
+        out.append(d)
+    return {"gigs": out}
 
 @app.get("/api/gigs/{gig_id}")
 def get_gig(gig_id: str):
@@ -386,7 +458,7 @@ def dm_list(me: str = Depends(current_user)):
     result = []
     total_unread = 0
     for p in partners:
-        name_row = conn.execute("SELECT name FROM users WHERE username=?", (p,)).fetchone()
+        name_row = conn.execute("SELECT name, photo_b64 FROM users WHERE username=?", (p,)).fetchone()
         last = conn.execute("SELECT text FROM messages WHERE (from_user=? AND to_user=?) OR (from_user=? AND to_user=?) ORDER BY time DESC LIMIT 1",
                             (me, p, p, me)).fetchone()
         unread = conn.execute(
@@ -394,6 +466,7 @@ def dm_list(me: str = Depends(current_user)):
             (p, me)).fetchone()["c"]
         total_unread += unread
         result.append({"with": p, "name": name_row["name"] if name_row else p,
+                       "has_photo": bool(name_row and name_row["photo_b64"]),
                        "last": last["text"] if last else "", "unread": unread})
     conn.close()
     return {"conversations": result, "total_unread": total_unread}
@@ -429,6 +502,125 @@ def upi_pay(req: UpiPayReq, username: str = Depends(current_user)):
     conn.commit()
     conn.close()
     return {"ok": True, "message":"UPI PIN verified. Funds locked in escrow."}
+
+# ---------------------------------------------------------------------------
+# Razorpay — real UPI payments for wallet top-ups (test mode free, live after KYC)
+# ---------------------------------------------------------------------------
+# How it fits together:
+#   1. Browser asks our server for an order: POST /api/payments/order {amount}
+#   2. Server creates the order with Razorpay (server->server, key secret never
+#      leaves the box) and remembers it as "created" in the payments table.
+#   3. Browser opens Razorpay Checkout with key_id + order_id; user pays via UPI.
+#   4. Razorpay calls back to the browser with payment_id + signature; browser
+#      POSTs them to /api/payments/verify.
+#   5. Server re-computes HMAC-SHA256(order_id|payment_id, key_secret) and only
+#      then credits the wallet — a payment the signature can't vouch for gets
+#      nobody's rupees. The payments row flips created -> verified, with
+#      UNIQUE(payment_id) making the credit provably once-only.
+# No keys set => RZP_ENABLED is False and the app stays in demo wallet mode.
+RAZORPAY_KEY_ID     = os.environ.get("RAZORPAY_KEY_ID", "").strip()
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "").strip()
+# Plausible-key sanity check, same spirit as config_looks_ready() for Firebase:
+# a truncated paste must never turn the "Pay with UPI" button on.
+RZP_ENABLED = bool(
+    re.fullmatch(r"rzp_(test|live)_[A-Za-z0-9]{10,}", RAZORPAY_KEY_ID or "") and
+    len(RAZORPAY_KEY_SECRET) >= 20)
+
+class PaymentOrderReq(BaseModel):
+    amount: float   # rupees — capped the same as the mock top-up
+
+class PaymentVerifyReq(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+def _rzp_record(order_id: str, username: str, amount_paise: int, status: str,
+                payment_id: str = None, signature: str = None):
+    conn = get_db()
+    row = conn.execute("SELECT id FROM payments WHERE order_id=? AND username=?",
+                       (order_id, username)).fetchone()
+    if row:
+        conn.execute("UPDATE payments SET payment_id=COALESCE(?,payment_id),"
+                     " signature=COALESCE(?,signature), status=? WHERE id=?",
+                     (payment_id, signature, status, row["id"]))
+    else:
+        conn.execute("INSERT INTO payments (gateway,order_id,payment_id,username,"
+                     "amount_paise,status,signature,payload,created_at) "
+                     "VALUES ('razorpay',?,?,?,?,?,?,NULL,?)",
+                     (order_id, payment_id, username, amount_paise, status,
+                      signature, datetime.now(timezone.utc).isoformat()))
+    conn.commit(); conn.close()
+
+@app.post("/api/payments/order")
+def create_payment_order(req: PaymentOrderReq, username: str = Depends(current_user)):
+    if not RZP_ENABLED:
+        raise HTTPException(503, {"ok": False, "code": "payments_not_configured",
+            "error": "Card/UPI payments are being set up. The wallet top-up below works in the meantime."})
+    if not (0 < req.amount <= MAX_TOPUP):
+        raise HTTPException(400, {"ok": False,
+            "error": f"Amount must be between ₹1 and ₹{MAX_TOPUP:,}."})
+    amount_paise = int(round(req.amount * 100))
+    try:
+        import requests
+        r = requests.post("https://api.razorpay.com/v1/orders",
+                          auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET),
+                          json={"amount": amount_paise, "currency": "INR",
+                                "receipt": "shiftly_" + uuid.uuid4().hex[:16]},
+                          timeout=15)
+        if r.status_code != 200:
+            print(f"[razorpay] order call failed: {r.status_code} {r.text[:300]}")
+            raise HTTPException(502, {"ok": False,
+                "error": "Payment gateway rejected the order. Try again in a moment."})
+        order = r.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, {"ok": False,
+            "error": f"Could not reach the payment gateway: {e}"})
+    _rzp_record(order["id"], username, amount_paise, "created")
+    return {"ok": True, "order_id": order["id"], "amount": amount_paise,
+            "currency": "INR", "key_id": RAZORPAY_KEY_ID}
+
+@app.post("/api/payments/verify")
+def verify_payment(req: PaymentVerifyReq, username: str = Depends(current_user)):
+    """Razorpay says "paid"; we only believe it if the signature checks out."""
+    if not RZP_ENABLED:
+        raise HTTPException(503, {"ok": False, "error": "Payments are not configured."})
+    conn = get_db()
+    order = conn.execute("SELECT * FROM payments WHERE order_id=? AND username=?",
+                         (req.razorpay_order_id, username)).fetchone()
+    if not order:
+        conn.close()
+        raise HTTPException(404, {"ok": False, "error": "Unknown payment order."})
+    if order["status"] == "verified":
+        # Already credited once — idempotent hand-shake, NOT an error: the
+        # browser can safely retry this call (double-tap, flaky network).
+        conn.close()
+        return {"ok": True, "verified": True, "duplicate": True}
+    expected = hmac.new(
+        RAZORPAY_KEY_SECRET.encode(),
+        f"{req.razorpay_order_id}|{req.razorpay_payment_id}".encode(),
+        hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, req.razorpay_signature or ""):
+        _rzp_record(req.razorpay_order_id, username, order["amount_paise"],
+                    "failed", req.razorpay_payment_id, req.razorpay_signature)
+        conn.close()
+        raise HTTPException(400, {"ok": False,
+            "error": "Payment signature did not verify. If money left your account, contact support with your UPI ref number."})
+    # Signature good — credit exactly what the order was created for, once.
+    amount_rupees = order["amount_paise"] / 100.0
+    conn.execute("UPDATE users SET balance = balance + ? WHERE username=?",
+                 (amount_rupees, username))
+    conn.execute("UPDATE payments SET status='verified', payment_id=?, signature=? WHERE id=?",
+                 (req.razorpay_payment_id, req.razorpay_signature, order["id"]))
+    conn.execute("INSERT INTO transactions (username,type,amount,note,time) VALUES (?,?,?,?,?)",
+                 (username, "topup", amount_rupees,
+                  f"UPI top-up via Razorpay · {req.razorpay_payment_id}",
+                  datetime.now(timezone.utc).isoformat()))
+    conn.commit()
+    row = conn.execute("SELECT balance FROM users WHERE username=?", (username,)).fetchone()
+    conn.close()
+    return {"ok": True, "verified": True, "balance": row["balance"] if row else 0}
 
 @app.post("/api/gigs/{gig_id}/complete")
 def complete_gig(gig_id: str, req: AcceptReq, caller: str = Depends(current_user)):
@@ -664,7 +856,9 @@ def _migrate_users_table():
     """Add Google-auth columns to an existing users table (safe to re-run)."""
     conn = get_db()
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
-    for name, ddl in (("email", "TEXT"), ("auth_uid", "TEXT"), ("email_verified", "INTEGER DEFAULT 0")):
+    for name, ddl in (("email", "TEXT"), ("auth_uid", "TEXT"),
+                      ("email_verified", "INTEGER DEFAULT 0"),
+                      ("photo_mime", "TEXT"), ("photo_b64", "TEXT")):
         if name not in cols:
             conn.execute(f"ALTER TABLE users ADD COLUMN {name} {ddl}")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) "
@@ -732,7 +926,10 @@ def verify_firebase_id_token(token: str) -> dict:
 
 @app.get("/api/health")
 def health():
-    return {"ok": True}
+    """Uptime monitor / Render health check. Includes feature flags so a deploy
+    checklist can be verified from one URL."""
+    return {"ok": True, "time": datetime.now(timezone.utc).isoformat(),
+            "google_sign_in": config_looks_ready(), "payments": RZP_ENABLED}
 
 @app.get("/api/auth/config")
 def auth_config():
@@ -746,6 +943,10 @@ def auth_config():
             "appId": FIREBASE_APP_ID,
         },
         "allowed_domains": ALLOWED_EMAIL_DOMAINS,
+        "payments": {
+            "enabled": RZP_ENABLED,
+            "key_id": RAZORPAY_KEY_ID if RZP_ENABLED else "",   # publishable by design
+        },
     }
 
 @app.post("/api/auth/google")
@@ -810,7 +1011,20 @@ def auth_google(req: GoogleAuthReq):
 _migrate_users_table()     # runs after the helpers above are defined
 _migrate_messages_table()
 
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+class CachedStaticFiles(StaticFiles):
+    """Images get long CDN-friendly caching; HTML is always re-validated so a
+    deploy is visible on the next refresh, not after the old tab dies."""
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        if resp.status_code == 200:
+            ext = os.path.splitext(path)[1].lower()
+            if ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"):
+                resp.headers["Cache-Control"] = "public, max-age=86400"
+            elif ext in (".html", ""):
+                resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+app.mount("/", CachedStaticFiles(directory="static", html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn, os
