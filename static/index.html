@@ -212,13 +212,14 @@
 
     <!-- MESSAGES -->
     <section id="view-dms" class="tab-view hidden lg:h-[calc(100vh-210px)] lg:min-h-[520px] flex flex-col lg:flex-row gap-4">
-      <div class="lg:w-72 h-44 lg:h-full flex-shrink-0 bg-white/70 backdrop-blur-sm rounded-3xl p-4 flex flex-col border border-[#E8D9C3] shadow-sm">
+      <div id="dm-list-pane" class="lg:w-72 h-44 lg:h-full flex-shrink-0 bg-white/70 backdrop-blur-sm rounded-3xl p-4 flex flex-col border border-[#E8D9C3] shadow-sm">
         <h4 class="font-extrabold text-sm mb-3 text-[#1F1812]">Conversations · बातचीत</h4>
         <div id="dm-list" class="flex-1 overflow-y-auto space-y-2"></div>
         <button onclick="startNewDM()" class="btn-secondary w-full mt-3 text-xs">Start New Chat · नया संदेश</button>
       </div>
-      <div id="dm-pane" class="flex-1 bg-white/70 backdrop-blur-sm rounded-3xl flex flex-col h-[62vh] min-h-[440px] lg:h-full relative overflow-hidden border border-[#E8D9C3] shadow-sm">
+      <div id="dm-pane" class="flex-1 bg-white/70 backdrop-blur-sm rounded-3xl flex flex-col h-[70vh] min-h-[440px] lg:h-full relative overflow-hidden border border-[#E8D9C3] shadow-sm">
         <div id="dm-header" class="p-4 border-b border-[#E8D9C3] flex items-center gap-3 bg-gradient-to-r from-[#FFF8F0] to-[#FDF8F0]">
+          <button id="dm-back" onclick="closeChat()" class="hidden lg:hidden w-9 h-9 rounded-xl border border-[#D9CDB8] bg-white text-[#8B7355] flex-shrink-0 shadow-sm"><i class="fa-solid fa-arrow-left"></i></button>
           <div id="dm-avatar" class="w-11 h-11 rounded-full bg-gradient-to-tr from-[#FF9933] to-[#D46A1A] text-white flex items-center justify-center text-lg font-extrabold shadow-md">A</div>
           <div>
             <h5 id="dm-name" class="font-extrabold text-sm text-[#1F1812]">Select a chat</h5>
@@ -321,6 +322,7 @@
     <a href="privacy.html" target="_blank" class="font-bold hover:text-[#8B4500] underline underline-offset-2">Privacy</a> ·
     <a href="terms.html" target="_blank" class="font-bold hover:text-[#8B4500] underline underline-offset-2">Terms</a> ·
     <a href="contact.html" target="_blank" class="font-bold hover:text-[#8B4500] underline underline-offset-2">Contact</a>
+    <span class="opacity-60 ml-1">· v2.2</span>
   </footer>
 </div>
 
@@ -789,6 +791,23 @@ async function verifyUpiPin(e){
 // swallowing taps on phones (node replaced mid-gesture) and flickering the
 // thread while reading. Only paint when something actually changed.
 let lastListJson = '', lastMsgsJson = '';
+// Two-screen mobile pattern: on phones the DMs view is either the list OR the
+// open chat — never two cramped columns that made the chat unreachable.
+// Desktop keeps the classic side-by-side layout (both panes always visible).
+function updateDmPaneLayout(){
+  const lp = $('dm-list-pane'), cp = $('dm-pane'), back = $('dm-back');
+  if(!lp || !cp) return;
+  const mobile = window.innerWidth < 1024, open = !!currentDMWith;
+  lp.classList.toggle('hidden', mobile && open);
+  cp.classList.toggle('hidden', mobile && !open);
+  if(back) back.classList.toggle('hidden', !(mobile && open));
+}
+function closeChat(){
+  currentDMWith = null;
+  lastMsgsJson = '';
+  updateDmPaneLayout();
+}
+window.addEventListener('resize', updateDmPaneLayout);
 async function loadDMList(){
   try{
     const r = await api('/api/dm_list');
@@ -872,7 +891,7 @@ function setTab(t){
   const btn = $('tab-'+t);
   if(btn){ btn.classList.add('bg-[#FFF4E6]','text-[#8B4500]'); btn.classList.remove('text-[#5C554D]'); }
   if(t==='marketplace'){ renderGigs(); }
-  if(t==='dms'){ loadDMList(); if(currentDMWith) loadDMMessages(); }
+  if(t==='dms'){ updateDmPaneLayout(); loadDMList(); if(currentDMWith) loadDMMessages(); }
   if(t==='wallet'){ loadUser(); loadActivity(); }
   if(t==='profile'){ loadUser(); }
 }
