@@ -63,6 +63,14 @@
   @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
   .anim-in{animation:fadeUp .35s ease both;}
   .pin-input{letter-spacing:0.3em;font-size:1.3rem;font-weight:800;text-align:center;color:#1F1812;}
+  .pressable{transition:transform .12s ease, box-shadow .2s ease;}
+  .pressable:active{transform:scale(.965);}
+  .no-scrollbar{-ms-overflow-style:none;scrollbar-width:none;}
+  .no-scrollbar::-webkit-scrollbar{display:none;}
+  .snap-x{scroll-snap-type:x mandatory;}
+  .snap-start{scroll-snap-align:start;}
+  .banner-msg{transition:opacity .45s ease, transform .45s ease;}
+  @keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
 </style>
 </head>
 <body class="antialiased selection:bg-saffron selection:text-white">
@@ -178,7 +186,7 @@
         <button onclick="openTopUpModal()" class="bg-gradient-to-r from-[#138808] to-[#0F6B0B] hover:brightness-110 text-white text-xs font-extrabold px-3 py-2.5 rounded-2xl transition shadow-lg shadow-green-300/30 whitespace-nowrap flex items-center gap-2"><i class="fa-solid fa-wallet"></i><span class="hidden sm:inline">UPI Top Up</span></button>
       </div>
     </div>
-    <div class="max-w-7xl mx-auto flex items-center gap-1 mt-2 overflow-x-auto" id="tab-bar">
+    <div class="max-w-7xl mx-auto items-center gap-1 mt-2 overflow-x-auto hidden lg:flex" id="tab-bar">
       <button onclick="setTab('marketplace')" id="tab-marketplace" class="tab-btn active px-4 py-1.5 rounded-full text-xs font-extrabold transition bg-[#FFF4E6] text-[#8B4500]">Marketplace · बाज़ार</button>
       <button onclick="setTab('dms')" id="tab-dms" class="tab-btn px-4 py-1.5 rounded-full text-xs font-extrabold transition text-[#5C554D] hover:text-[#1F1812]">Messages · संदेश <span id="dm-badge" class="ml-1 bg-[#FF9933] text-white text-[10px] px-1.5 rounded-full hidden">0</span></button>
       <button onclick="setTab('wallet')" id="tab-wallet" class="tab-btn px-4 py-1.5 rounded-full text-xs font-extrabold transition text-[#5C554D] hover:text-[#1F1812]">Wallet · वॉलेट</button>
@@ -187,25 +195,58 @@
   </header>
 
   <!-- Main -->
-  <main class="flex-1 max-w-7xl mx-auto w-full p-4 lg:p-6 space-y-6">
+  <main class="flex-1 max-w-7xl mx-auto w-full p-4 lg:p-6 pb-24 lg:pb-6 space-y-6">
 
     <!-- MARKETPLACE -->
     <section id="view-marketplace" class="tab-view space-y-5">
-      <div class="flex flex-col md:flex-row md:items-end justify-between gap-3">
-        <div>
-          <h3 class="font-editorial text-3xl md:text-5xl text-[#1F1812] leading-[1.1]">Gigs near campus</h3>
-          <p class="text-[#5C554D] text-sm mt-1">Browse open tasks, apply instantly, earn in ₹ to UPI wallet.</p>
-          <div class="flex gap-2 mt-2 text-xs text-[#8B7355]"><span class="tag-saffron">High Urgency</span><span class="tag-green">Food Run</span><span class="tag-saffron">Tutoring</span></div>
+      <!-- Hero: greeting + live bazaar stats (Swiggy/LI-style identity-first header) -->
+      <div class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#3D2412] via-[#6D3E1F] to-[#0F6B0B] text-white p-5 md:p-7 shadow-xl">
+        <div class="relative z-10">
+          <p id="mk-greet-time" class="text-[11px] font-bold uppercase tracking-[0.25em] text-[#FFD9B0]">Good evening</p>
+          <h3 id="mk-greet" class="font-editorial text-3xl md:text-4xl leading-tight mt-0.5 text-[#FFF4E6]">Namaste</h3>
+          <p class="text-xs text-[#FFE4C8]/85 mt-1">Your campus bazaar is live — errands, tutoring, lifting & more</p>
+          <div id="mk-stats" class="flex gap-2 mt-4 flex-wrap"></div>
         </div>
-        <div class="flex gap-2">
-          <input id="search-gigs" oninput="renderGigs();" type="text" placeholder="Search gigs..." class="bg-white border-[#D9CDB8] rounded-xl px-3 py-2 text-xs w-48 focus:w-72 transition-all shadow-sm" />
-          <select id="filter-cat" onchange="renderGigs();" class="bg-white border-[#D9CDB8] rounded-xl px-3 py-2 text-xs shadow-sm"><option value="All">All</option><option>Food Run</option><option>Tutoring</option><option>Heavy Lifting</option><option>Academic</option><option>Tech Support</option></select>
+        <img src="assets/img/hero.jpg" alt="" class="absolute inset-y-0 right-0 h-full w-2/3 object-cover opacity-30 pointer-events-none" style="mask-image:linear-gradient(to left,black,transparent);-webkit-mask-image:linear-gradient(to left,black,transparent)" onerror="this.remove()">
+      </div>
+      <!-- Rotating promo banner -->
+      <div id="mk-banner" class="relative overflow-hidden rounded-2xl px-4 py-3 text-white text-xs md:text-sm font-extrabold shadow-md" style="background:linear-gradient(90deg,#FF9933,#D46A1A)">
+        <span id="mk-banner-txt" class="banner-msg relative z-10 inline-block"></span>
+        <span class="absolute inset-y-0 w-1/3 bg-white/10 blur-md" style="animation:shimmer 4.5s infinite"></span>
+      </div>
+      <!-- Category rail -->
+      <div>
+        <div class="flex items-end justify-between mb-2">
+          <h4 class="font-extrabold text-sm text-[#1F1812]">Browse by mood · क्या चाहिए?</h4>
+          <span class="text-[10px] font-bold text-[#8B7355]">tap a lane to filter</span>
+        </div>
+        <div id="cat-rail" class="flex gap-3 overflow-x-auto no-scrollbar snap-x -mx-1 px-1 pb-1"></div>
+      </div>
+      <!-- Hot row: high-urgency open gigs -->
+      <div id="hot-row-wrap" class="hidden">
+        <div class="flex items-end justify-between mb-2">
+          <h4 class="font-extrabold text-sm text-[#1F1812]"><span class="text-[#B83A3A]">⚡</span> Needs doing NOW</h4>
+          <span class="text-[10px] font-bold text-[#8B7355]">first come, first served</span>
+        </div>
+        <div id="hot-row" class="flex gap-4 overflow-x-auto no-scrollbar snap-x -mx-1 px-1 pb-2"></div>
+      </div>
+      <div class="flex flex-col md:flex-row md:items-end justify-between gap-3">
+        <div class="flex-1 relative">
+          <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8B7355] text-xs"></i>
+          <input id="search-gigs" oninput="renderGigs();" type="text" placeholder="Search gigs, places, keywords..." class="w-full bg-white border-[#D9CDB8] rounded-full pl-10 pr-4 py-2.5 text-xs shadow-md focus:shadow-lg transition" />
+        </div>
+        <div class="flex gap-2 items-center">
+          <select id="filter-cat" onchange="renderGigs();" class="bg-white border-[#D9CDB8] rounded-full px-3 py-2.5 text-xs shadow-sm"><option value="All">All categories</option><option>Food Run</option><option>Tutoring</option><option>Heavy Lifting</option><option>Academic</option><option>Tech Support</option></select>
+          <div class="flex gap-1.5" id="feed-chips">
+            <button id="chip-all" onclick="setFeedView('All')" class="feed-chip text-[11px] font-extrabold px-3 py-2 rounded-full border bg-[#FFF4E6] text-[#8B4500] border-[#FFCC80] shadow-sm transition whitespace-nowrap">All</button>
+            <button id="chip-open" onclick="setFeedView('Open')" class="feed-chip text-[11px] font-extrabold px-3 py-2 rounded-full border text-[#5C554D] border-[#D9CDB8] bg-white shadow-sm transition hover:border-[#FF9933] whitespace-nowrap">Open</button>
+            <button id="chip-mine" onclick="setFeedView('Mine')" class="feed-chip text-[11px] font-extrabold px-3 py-2 rounded-full border text-[#5C554D] border-[#D9CDB8] bg-white shadow-sm transition hover:border-[#FF9933] whitespace-nowrap">Mine</button>
+          </div>
         </div>
       </div>
-      <div class="flex gap-2 mb-4 flex-wrap">
-        <button id="chip-all" onclick="setFeedView('All')" class="feed-chip text-xs font-extrabold px-3.5 py-1.5 rounded-full border bg-[#FFF4E6] text-[#8B4500] border-[#FFCC80] shadow-sm transition">All Gigs</button>
-        <button id="chip-open" onclick="setFeedView('Open')" class="feed-chip text-xs font-extrabold px-3.5 py-1.5 rounded-full border text-[#5C554D] border-[#D9CDB8] bg-white shadow-sm transition hover:border-[#FF9933]">Open Only</button>
-        <button id="chip-mine" onclick="setFeedView('Mine')" class="feed-chip text-xs font-extrabold px-3.5 py-1.5 rounded-full border text-[#5C554D] border-[#D9CDB8] bg-white shadow-sm transition hover:border-[#FF9933]">My Gigs</button>
+      <div class="flex items-end justify-between">
+        <h4 class="font-extrabold text-sm text-[#1F1812]">The Bazaar · all gigs</h4>
+        <span id="feed-count" class="text-[10px] font-bold text-[#8B7355]"></span>
       </div>
       <div id="gig-feed" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"></div>
     </section>
@@ -322,7 +363,7 @@
     <a href="privacy.html" target="_blank" class="font-bold hover:text-[#8B4500] underline underline-offset-2">Privacy</a> ·
     <a href="terms.html" target="_blank" class="font-bold hover:text-[#8B4500] underline underline-offset-2">Terms</a> ·
     <a href="contact.html" target="_blank" class="font-bold hover:text-[#8B4500] underline underline-offset-2">Contact</a>
-    <span class="opacity-60 ml-1">· v2.3</span>
+    <span class="opacity-60 ml-1">· v2.4</span>
   </footer>
 </div>
 
@@ -444,8 +485,18 @@
   </div>
 </div>
 
+<!-- Mobile bottom navigation (the "feels like an app" bar) -->
+<nav id="bottom-nav" class="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-[#E8D9C3] shadow-[0_-4px_20px_rgba(0,0,0,0.06)] hidden">
+  <div class="grid grid-cols-4">
+    <button data-btab="marketplace" onclick="setTab('marketplace')" class="bnav-btn py-2.5 flex flex-col items-center gap-0.5 text-[#FF9933]"><i class="fa-solid fa-store text-base"></i><span class="text-[9px] font-extrabold tracking-wide">Bazaar</span></button>
+    <button data-btab="dms" onclick="setTab('dms')" class="bnav-btn py-2.5 flex flex-col items-center gap-0.5 text-[#8B7355] relative"><i class="fa-regular fa-comment-dots text-base"></i><span id="bnav-badge" class="absolute top-1 right-6 bg-[#B83A3A] text-white text-[9px] font-extrabold min-w-[15px] h-[15px] px-1 rounded-full hidden flex items-center justify-center">0</span><span class="text-[9px] font-extrabold tracking-wide">Chats</span></button>
+    <button data-btab="wallet" onclick="setTab('wallet')" class="bnav-btn py-2.5 flex flex-col items-center gap-0.5 text-[#8B7355]"><i class="fa-solid fa-wallet text-base"></i><span class="text-[9px] font-extrabold tracking-wide">Wallet</span></button>
+    <button data-btab="profile" onclick="setTab('profile')" class="bnav-btn py-2.5 flex flex-col items-center gap-0.5 text-[#8B7355]"><i class="fa-regular fa-user text-base"></i><span class="text-[9px] font-extrabold tracking-wide">Profile</span></button>
+  </div>
+</nav>
+
 <!-- Toast -->
-<div id="toast-container" class="fixed bottom-5 right-5 z-[80] flex flex-col gap-2 max-w-sm pointer-events-none"></div>
+<div id="toast-container" class="fixed bottom-20 lg:bottom-5 right-5 z-[80] flex flex-col gap-2 max-w-sm pointer-events-none"></div>
 
 <script>
 let currentUser = null;
@@ -482,6 +533,7 @@ function googleNotice(msg){ const el=$('google-notice'); if(!el) return; el.text
 async function enterApp(){
   $('entry-screen').classList.add('hidden');
   $('app-shell').classList.remove('hidden');
+  $('bottom-nav').classList.remove('hidden');
   await loadUser(); renderGigs(); loadDMList();
 }
 
@@ -597,6 +649,7 @@ async function loadUser(){
     const data = await r.json();
     if(data.username){
       currentUserData = data;
+      updateGreeting(data.name);
       $('header-balance').textContent = fmt(data.balance);
       $('header-escrow').textContent = fmt(data.escrow);
       $('wallet-balance').textContent = fmt(data.balance);
@@ -632,6 +685,60 @@ const STATUS_STYLE = {'OPEN':'bg-[#E8F5E9] text-[#1B5E20] border-[#C5E0C5]','IN_
 let gigCache = {};
 let feedView = 'All';
 let lastGigsJson = '';   // polls that change nothing must not rebuild the DOM
+
+// --- professional-app face: greeting, banner, category rail, hot row ---------
+const CATS = [
+  {name:'Food Run',      img:'cat-food.jpg',    tag:'cravings cover'},
+  {name:'Tutoring',      img:'cat-tutors.jpg',  tag:'exam season saves'},
+  {name:'Heavy Lifting', img:'cat-lifting.jpg', tag:'muscle for hire'},
+  {name:'Academic',      img:'cat-academic.jpg',tag:'notes & lab help'},
+  {name:'Tech Support',  img:'cat-tech.jpg',    tag:'wifi warriors'},
+];
+const BANNERS = [
+  {t:'⚡ Earn ₹50+ today — urgent gigs pay the fastest', bg:'linear-gradient(90deg,#FF9933,#D46A1A)'},
+  {t:'🔒 Every bounty is escrow-locked — work first, worry never', bg:'linear-gradient(90deg,#138808,#0F6B0B)'},
+  {t:'🎓 Tutoring is trending — monetise your toppers&apos; notes', bg:'linear-gradient(90deg,#6B3FA0,#4A2568)'},
+  {t:'⭐ 97% to the worker — the fairest split on campus', bg:'linear-gradient(90deg,#B8860B,#8B5A2B)'},
+];
+let bannerIdx = 0;
+function rotateBanner(){
+  const bn = $('mk-banner'), txt = $('mk-banner-txt');
+  if(!bn || !txt) return;
+  const b = BANNERS[bannerIdx % BANNERS.length]; bannerIdx++;
+  txt.style.opacity = 0; txt.style.transform = 'translateY(6px)';
+  setTimeout(()=>{ bn.style.background = b.bg; txt.innerHTML = b.t;
+    txt.style.opacity = 1; txt.style.transform = 'translateY(0)'; }, 220);
+}
+function updateGreeting(name){
+  const h = new Date().getHours();
+  const part = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  const g = $('mk-greet'), t = $('mk-greet-time');
+  if(t) t.textContent = part;
+  if(g) g.textContent = (name ? 'Namaste, ' + name.split(' ')[0] : 'Namaste') + ' 🙏';
+}
+function buildCatRail(gigs){
+  const rail = $('cat-rail'); if(!rail) return;
+  const openByCat = {};
+  (gigs||[]).forEach(g=>{ if(g.status==='OPEN') openByCat[g.category] = (openByCat[g.category]||0) + 1; });
+  rail.innerHTML = CATS.map(c=>{
+    const n = openByCat[c.name] || 0;
+    const active = $('filter-cat') && $('filter-cat').value === c.name;
+    return `<button onclick="setCat('${c.name}')" class="pressable snap-start flex-shrink-0 w-32 h-24 rounded-2xl overflow-hidden relative shadow-md ${active?'ring-2 ring-[#FF9933] ring-offset-2':''}">
+      <img src="assets/img/${c.img}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover" onerror="this.remove()">
+      <span class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent"></span>
+      <span class="absolute top-1.5 left-2 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full ${n>0?'bg-[#138808] text-white':'bg-black/40 text-white/80'}">${n>0? n+' open':'quiet rn'}</span>
+      <span class="absolute bottom-1.5 left-2 right-2 text-left">
+        <span class="block text-white text-[12px] font-extrabold leading-tight drop-shadow">${c.name}</span>
+        <span class="block text-white/80 text-[9px] leading-tight">${c.tag}</span>
+      </span>
+    </button>`;
+  }).join('');
+}
+function setCat(cat){
+  $('filter-cat').value = ($('filter-cat').value === cat) ? 'All' : cat;
+  renderGigs();
+  $('gig-feed').scrollIntoView({block:'start', behavior:'smooth'});
+}
 
 function timeAgo(iso){
   const d = (Date.now() - new Date(iso).getTime())/1000;
@@ -675,6 +782,34 @@ async function renderGigs(){
       if(sig0 === lastGigsJson) return;
       lastGigsJson = sig0;
     }
+    // hero stats — the live "money available on campus" strip
+    {
+      const open = (data.gigs||[]).filter(g=>g.status==='OPEN');
+      const urgN = open.filter(g=>g.urgency==='High').length;
+      const pot = open.reduce((s,g)=>s+g.reward*0.97, 0);
+      const st = $('mk-stats');
+      if(st) st.innerHTML =
+        `<span class="bg-white/15 backdrop-blur px-3 py-1.5 rounded-full text-[11px] font-extrabold">🟢 ${open.length} open gigs right now</span>` +
+        `<span class="bg-white/15 backdrop-blur px-3 py-1.5 rounded-full text-[11px] font-extrabold">💰 ${fmt(pot)} up for grabs</span>` +
+        (urgN ? `<span class="bg-[#B83A3A]/85 px-3 py-1.5 rounded-full text-[11px] font-extrabold">⚡ ${urgN} urgent</span>` : '');
+    }
+    buildCatRail(data.gigs);
+    // hot row: high-urgency open gigs from other people (hidden when filtering)
+    {
+      const hrw = $('hot-row-wrap'), hr = $('hot-row');
+      const hot = (data.gigs||[]).filter(g=>g.status==='OPEN' && g.urgency==='High' && g.poster!==currentUser).slice(0,8);
+      const pristine = $('filter-cat').value==='All' && feedView==='All' && !$('search-gigs').value.trim();
+      if(hrw && hr){
+        if(hot.length && pristine){
+          hrw.classList.remove('hidden');
+          hr.innerHTML = hot.map(g=>
+            `<button onclick="openGigDetail('${g.id}')" class="pressable snap-start flex-shrink-0 w-56 bg-white rounded-3xl overflow-hidden shadow-md border border-[#E8D9C3] text-left">
+              <div class="h-16 relative"><img src="assets/img/${CAT_IMG[g.category]||'cat-academic.jpg'}" alt="" loading="lazy" class="w-full h-full object-cover" onerror="this.remove()"><span class="absolute bottom-1.5 left-2 bg-white/95 text-[#B83A3A] text-xs font-extrabold px-2 py-0.5 rounded-lg shadow">${fmt(g.reward)}</span><span class="absolute top-1.5 right-2 bg-[#B83A3A] text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-full">⚡ NOW</span></div>
+              <div class="p-3"><p class="text-[11px] font-extrabold text-[#1F1812] leading-snug line-clamp-2">${g.title}</p><p class="text-[10px] text-[#8B7355] mt-1 truncate"><i class="fa-solid fa-location-dot text-[#FF9933] mr-1"></i>${g.location}</p></div>
+            </button>`).join('');
+        } else hrw.classList.add('hidden');
+      }
+    }
     feed.innerHTML = '';
     (data.gigs||[]).forEach(g=>{ gigCache[g.id] = g; });
     const cat = $('filter-cat').value;
@@ -685,6 +820,7 @@ async function renderGigs(){
       && (cat==='All'||g.category===cat)
       && (!q||g.title.toLowerCase().includes(q)));
     if(list.length===0){feed.innerHTML='<div class="col-span-full text-center text-[#8B7355] py-10 text-sm">No gigs here yet. Post one on the Bazaar!</div>';return;}
+    const fc = $('feed-count'); if(fc) fc.textContent = list.length + ' shown';
     list.forEach(g=>{
       const isPoster = g.poster===currentUser;
       const isWorker = g.worker===currentUser;
@@ -692,7 +828,7 @@ async function renderGigs(){
       const urgencyBg = g.urgency==='High'?'bg-[#FCEAE8] border-[#F5C5C5]':g.urgency==='Medium'?'bg-[#FDF6E3] border-[#F0DC9E]':'bg-[#E8F5E9] border-[#C5E0C5]';
       const posterRating = (g.poster_rating ?? 5.0).toFixed(1);
       const card = document.createElement('div');
-      card.className = 'glass-card rounded-3xl p-5 space-y-3 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200';
+      card.className = 'glass-card pressable rounded-3xl p-5 space-y-3 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200';
       card.onclick = ()=>openGigDetail(g.id);
       const footBtn = isPoster
         ? `<span class="flex items-center gap-1.5">
@@ -710,16 +846,19 @@ async function renderGigs(){
               ? `<button onclick="event.stopPropagation();acceptGig('${g.id}')" class="btn-primary text-xs px-3 py-1.5">Take Gig \u00b7 \u0932\u0947 \u0932\u0947\u0902</button>`
               : `<span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${STATUS_STYLE[g.status]||'text-[#8B7355] border-[#D9CDB8]'}">${g.status.replace('_',' ')}</span>`));
       card.innerHTML = `
-        <div class="h-28 -mx-5 -mt-5 rounded-t-3xl overflow-hidden mb-3"><img src="assets/img/${CAT_IMG[g.category]||'cat-academic.jpg'}" alt="" loading="lazy" class="w-full h-full object-cover" onerror="this.parentElement.style.display='none'"></div>
+        <div class="h-32 -mx-5 -mt-5 rounded-t-3xl overflow-hidden relative mb-3">
+          <img src="assets/img/${CAT_IMG[g.category]||'cat-academic.jpg'}" alt="" loading="lazy" class="w-full h-full object-cover" onerror="this.parentElement.style.display='none'">
+          <span class="absolute bottom-2 left-2 bg-white/95 text-[#D46A1A] text-sm font-extrabold px-2.5 py-1 rounded-xl shadow">${fmt(g.reward)}</span>
+          <span class="absolute top-2 right-2 text-[9px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded-full ${urgencyBg} ${urgencyColor} border">${g.urgency}</span>
+        </div>
         <div class="flex items-start justify-between gap-2">
-          <span class="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded-md ${urgencyBg} ${urgencyColor} border"><i class="fa-solid ${CAT_ICONS[g.category]||'fa-briefcase'} mr-1"></i>${g.urgency} \u00b7 ${g.category}</span>
-          <span class="text-sm font-extrabold text-[#D46A1A]">${fmt(g.reward)}</span>
+          <span class="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded-md bg-[#FDF6E3] text-[#8B4513] border border-[#F0DC9E]"><i class="fa-solid ${CAT_ICONS[g.category]||'fa-briefcase'} mr-1"></i>${g.category}</span>
+          <span class="text-[10px] text-[#8B7355] font-bold whitespace-nowrap">${timeAgo(g.created_at)}</span>
         </div>
         <h4 class="font-extrabold text-base leading-tight text-[#1F1812]">${g.title}</h4>
         <p class="text-xs text-[#5C554D] leading-relaxed line-clamp-2">${g.instructions}</p>
         <div class="flex items-center gap-3 text-[11px] text-[#8B7355]">
           <span class="flex items-center gap-1"><i class="fa-solid fa-location-dot text-[#FF9933]"></i> ${g.location}</span>
-          <span class="flex items-center gap-1"><i class="fa-regular fa-clock text-[#FF9933]"></i> ${timeAgo(g.created_at)}</span>
         </div>
         <div class="pt-2 border-t border-[#E8D9C3] flex items-center justify-between gap-2">
           <div class="flex items-center gap-2 min-w-0">
@@ -820,6 +959,11 @@ async function loadDMList(){
       badge.textContent = total;
       badge.classList.toggle('hidden', total === 0);
     }
+    const bbadge = $('bnav-badge');
+    if(bbadge){ const total = data.total_unread || 0;
+      bbadge.textContent = total;
+      bbadge.classList.toggle('hidden', total === 0);
+    }
     if(sig === lastListJson) return;   // nothing new — leave the DOM alone
     lastListJson = sig;
     list.innerHTML = '';
@@ -890,6 +1034,11 @@ function setTab(t){
   document.querySelectorAll('.tab-btn').forEach(b=>{b.classList.remove('bg-[#FFF4E6]','text-[#8B4500]');b.classList.add('text-[#5C554D]');});
   const btn = $('tab-'+t);
   if(btn){ btn.classList.add('bg-[#FFF4E6]','text-[#8B4500]'); btn.classList.remove('text-[#5C554D]'); }
+  document.querySelectorAll('.bnav-btn').forEach(b=>{
+    const active = b.dataset.btab === t;
+    b.classList.toggle('text-[#FF9933]', active);
+    b.classList.toggle('text-[#8B7355]', !active);
+  });
   if(t==='marketplace'){ renderGigs(); }
   if(t==='dms'){ updateDmPaneLayout(); loadDMList(); if(currentDMWith) loadDMMessages(); }
   if(t==='wallet'){ loadUser(); loadActivity(); }
@@ -1155,6 +1304,7 @@ window.addEventListener('load',async ()=>{
     currentUser = saved;
     $('entry-screen').classList.add('hidden');
     $('app-shell').classList.remove('hidden');
+    $('bottom-nav').classList.remove('hidden');
     await loadUser();
     renderGigs();
     loadDMList();
@@ -1164,6 +1314,8 @@ window.addEventListener('load',async ()=>{
   }
   initFirebaseAuth();
   handleGoogleRedirectResult();
+  rotateBanner();
+  setInterval(rotateBanner, 5200);
   setInterval(()=>{ if(currentUser&&currentTab==='marketplace') renderGigs(); if(currentUser&&currentTab==='dms'){ loadDMList(); if(currentDMWith) loadDMMessages(); } }, 900);
   $('p-rew').addEventListener('input',()=>{ const v=parseFloat($('p-rew').value)||0; $('fee-preview').textContent = fmt(v)+' held · Worker gets '+fmt(v*0.97); });
 });
@@ -1352,6 +1504,7 @@ window.signOut = async function(){
   ['reg-name','reg-major','reg-dorm','reg-upi'].forEach(id=>{ const el=$(id); if(el) el.value=''; });
   const banner = $('profile-banner'); if(banner) banner.classList.add('hidden');
   $('app-shell').classList.add('hidden');
+  const bn = $('bottom-nav'); if(bn) bn.classList.add('hidden');
   $('entry-screen').classList.remove('hidden');
   showEntryStep('choice');
   showToast('Signed out','info');
